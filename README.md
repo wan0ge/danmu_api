@@ -26,7 +26,7 @@
 - **部署支持**：支持本地运行、Docker 容器化、Vercel 一键部署、Cloudflare 一键部署和 Docker 一键启动。
 
 ## 前置条件
-- Node.js（v20.19.0 或更高版本）
+- Node.js（v18.0.0 或更高版本）
 - npm
 - Docker（可选，用于容器化部署）
 
