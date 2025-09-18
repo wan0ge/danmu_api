@@ -84,10 +84,10 @@ function createServer() {
         res.setHeader(key, value);
       });
       const responseText = await webResponse.text();
-      res。end(responseText);
+      res.end(responseText);
     } catch (error) {
-      console。error('Server error:'， error);
-      res。statusCode = 500;
+      console.error('Server error:', error);
+      res.statusCode = 500;
       res.end('Internal Server Error');
     }
   });
@@ -95,11 +95,11 @@ function createServer() {
 
 // 同步启动（适用于兼容环境）
 function startServerSync() {
-  console。log('[server] Starting server synchronously (optimal path)');
+  console.log('[server] Starting server synchronously (optimal path)');
   
   const server = createServer();
   
-  server.listen(9321, '0.0.0.0'， () => {
+  server.listen(9321, '0.0.0.0', () => {
     console.log('Server running on http://0.0.0.0:9321');
   });
 }
@@ -107,19 +107,19 @@ function startServerSync() {
 // 异步启动（适用于需要兼容的环境：Node.js < v20.19.0 + node-fetch v3）
 async function startServerAsync() {
   try {
-    console。log('[server] Starting server asynchronously (compatibility mode for Node.js <20.19.0 + node-fetch v3)');
+    console.log('[server] Starting server asynchronously (compatibility mode for Node.js <20.19.0 + node-fetch v3)');
     
     // 预加载 node-fetch v3
     if (typeof global.loadNodeFetch === 'function') {
       console.log('[server] Pre-loading node-fetch v3...');
-      await global。loadNodeFetch();
+      await global.loadNodeFetch();
       console.log('[server] node-fetch v3 loaded successfully');
     }
 
     const server = createServer();
     
-    server.listen(9321， '0.0.0.0'， () => {
-      console。log('Server running on http://0.0.0.0:9321 (compatibility mode)');
+    server.listen(9321, '0.0.0.0', () => {
+      console.log('Server running on http://0.0.0.0:9321 (compatibility mode)');
     });
 
   } catch (error) {
