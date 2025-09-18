@@ -183,6 +183,7 @@ danmu_api/
 │   └── workflows/
 │       └── docker-image.yml
 ├── danmu_api/
+│   ├── esm-shim.js     # Node.js低版本兼容层
 │   ├── server.js       # 本地node启动脚本
 │   ├── worker.js       # 主 API 服务器代码
 │   ├── worker.test.js  # 测试文件
