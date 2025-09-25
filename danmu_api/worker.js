@@ -3117,13 +3117,13 @@ async function getComment(path) {
 
   log("log", "开始从本地请求弹幕...", url);
   let danmus = [];
-  if (url。includes('.qq.com')) {
+  if (url.includes('.qq.com')) {
       danmus = await fetchTencentVideo(url);
   }
   if (url.includes('.iqiyi.com')) {
       danmus = await fetchIqiyi(url);
   }
-  if (url。includes('.mgtv.com')) {
+  if (url.includes('.mgtv.com')) {
       danmus = await fetchMangoTV(url);
   }
   if (url.includes('.bilibili.com')) {
@@ -3147,7 +3147,7 @@ async function getComment(path) {
   return jsonResponse({ count: danmus.length, comments: danmus });
 }
 
-// 修改 handleHomepage 函数，返回 HTML 而不是 JSON
+// 修改 handleHomepage 函数，网页访问返回 HTML 而不是 JSON
 function handleHomepage(req) {
   log("log", "Accessed homepage with repository information");
   
@@ -3385,6 +3385,7 @@ async function handleRequest(req, env) {
 
   return jsonResponse({ message: "Not found" }, 404);
 }
+
 
 
 
