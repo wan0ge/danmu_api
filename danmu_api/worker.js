@@ -3117,13 +3117,13 @@ async function getComment(path) {
 
   log("log", "开始从本地请求弹幕...", url);
   let danmus = [];
-  if (url.includes('.qq.com')) {
+  if (url。includes('.qq.com')) {
       danmus = await fetchTencentVideo(url);
   }
   if (url.includes('.iqiyi.com')) {
       danmus = await fetchIqiyi(url);
   }
-  if (url.includes('.mgtv.com')) {
+  if (url。includes('.mgtv.com')) {
       danmus = await fetchMangoTV(url);
   }
   if (url.includes('.bilibili.com')) {
@@ -3147,6 +3147,88 @@ async function getComment(path) {
   return jsonResponse({ count: danmus.length, comments: danmus });
 }
 
+// 修改 handleHomepage 函数，返回 HTML 而不是 JSON
+function handleHomepage(req) {
+  log("log", "Accessed homepage with repository information");
+  
+  const data = {
+    message: "Welcome to the LogVar Danmu API server",
+    version: VERSION,
+    repository: "https://github.com/huangxd-/danmu_api.git",
+    description: "一个人人都能部署的基于 js 的弹幕 API 服务器，支持爱优腾芒哔人弹幕直接获取，兼容弹弹play的搜索、详情查询和弹幕获取接口，并提供日志记录，支持vercel/cloudflare/docker/claw等部署方式，不用提前下载弹幕，没有nas或小鸡也能一键部署。",
+    notice: "本项目仅为个人爱好开发，代码开源。如有任何侵权行为，请联系本人删除。有问题提issue或私信机器人都ok。https://t.me/ddjdd_bot"
+  };
+
+  // 检查请求头，如果是浏览器访问则返回 HTML，否则返回 JSON
+  const userAgent = req.headers.get('user-agent') || '';
+  const acceptHeader = req.headers.get('accept') || '';
+  
+  if (acceptHeader.includes('text/html')) {
+    // 返回 HTML 页面
+    const html = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogVar Danmu API Server</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .info { margin: 15px 0; }
+        .label { font-weight: bold; color: #666; }
+        .description { line-height: 1.6; margin: 15px 0; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LogVar Danmu API Server</h1>
+        <div class="info">
+            <span class="label">版本:</span> ${data.version}
+        </div>
+        <div class="info">
+            <span class="label">项目地址:</span> <a href="${data.repository}" target="_blank">${data.repository}</a>
+        </div>
+        <div class="description">
+            <span class="label">项目描述:</span><br>
+            ${data.description}
+        </div>
+        <div class="description">
+            <span class="label">注意事项:</span><br>
+            ${data.notice}
+        </div>
+        <div class="info">
+            <span class="label">API 状态:</span> ✅ 运行中
+        </div>
+    </div>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" }
+    });
+  } else {
+    // API 调用时返回原有的 JSON 格式
+    return jsonResponse(data);
+  }
+}
+
+// 修改后的完整 handleRequest 函数路由部分
 async function handleRequest(req, env) {
   token = resolveToken(env);  // 每次请求动态获取，确保热更新环境变量后也能生效
   otherServer = resolveOtherServer(env);
@@ -3159,20 +3241,9 @@ async function handleRequest(req, env) {
   let path = url.pathname;
   const method = req.method;
 
-  function handleHomepage() {
-    log("log", "Accessed homepage with repository information");
-    return jsonResponse({
-      message: "Welcome to the LogVar Danmu API server",
-      version: VERSION,
-      repository: "https://github.com/huangxd-/danmu_api.git",
-      description: "一个人人都能部署的基于 js 的弹幕 API 服务器，支持爱优腾芒哔人弹幕直接获取，兼容弹弹play的搜索、详情查询和弹幕获取接口，并提供日志记录，支持vercel/cloudflare/docker/claw等部署方式，不用提前下载弹幕，没有nas或小鸡也能一键部署。",
-      notice: "本项目仅为个人爱好开发，代码开源。如有任何侵权行为，请联系本人删除。有问题提issue或私信机器人都ok。https://t.me/ddjdd_bot"
-    });
-  }
-
   // GET /
   if (path === "/" && method === "GET") {
-    return handleHomepage();
+    return handleHomepage(req);
   }
 
   if (path === "/favicon.ico" || path === "/robots.txt") {
@@ -3193,9 +3264,9 @@ async function handleRequest(req, env) {
 
   log("log", path);
 
-  // GET /
+  // GET / (带token的根路径)
   if (path === "/" && method === "GET") {
-    return handleHomepage();
+    return handleHomepage(req);
   }
 
   // GET /api/v2/search/anime
@@ -3208,7 +3279,7 @@ async function handleRequest(req, env) {
     return searchEpisodes(url);
   }
 
-  // GET /api/v2/match
+  // POST /api/v2/match
   if (path === "/api/v2/match" && method === "POST") {
     return matchAnime(url, req);
   }
@@ -3223,15 +3294,93 @@ async function handleRequest(req, env) {
     return getComment(path);
   }
 
-  // GET /api/logs
+  // GET /api/logs (修改这部分)
   if (path === "/api/logs" && method === "GET") {
+    const userAgent = req.headers.get('user-agent') || '';
+    const acceptHeader = req.headers.get('accept') || '';
+    
     const logText = logBuffer
       .map(
         (log) =>
           `[${log.timestamp}] ${log.level}: ${formatLogMessage(log.message)}`
       )
       .join("\n");
-    return new Response(logText, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+
+    if (acceptHeader.includes('text/html')) {
+      // 返回 HTML 页面
+      const html = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 日志 - LogVar Danmu API</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #00ff00;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #00ff00;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        pre {
+            background-color: #000;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 20px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .refresh-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .refresh-btn:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>API 日志监控</h1>
+        <button class="refresh-btn" onclick="location.reload()">刷新日志</button>
+        <pre id="logs">${logText || '暂无日志记录'}</pre>
+    </div>
+    <script>
+        // 自动滚动到底部
+        document.getElementById('logs').scrollTop = document.getElementById('logs').scrollHeight;
+    </script>
+</body>
+</html>`;
+
+      return new Response(html, {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    } else {
+      // API 调用时返回原有的纯文本格式
+      return new Response(logText, { 
+        headers: { "Content-Type": "text/plain; charset=utf-8" } 
+      });
+    }
   }
 
   return jsonResponse({ message: "Not found" }, 404);
