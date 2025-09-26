@@ -3105,68 +3105,121 @@ async function getComment(path) {
   let url = findUrlById(commentId);
   if (!url) {
     log("error", `Comment with ID ${commentId} not found`);
-    return jsonResponse({ count: 0, comments: [] }, 404);
+    return jsonResponse({ count: 0， comments: [] }, 404);
   }
-  log("log", `Fetched comment ID: ${commentId}`);
+  log("log"， `Fetched comment ID: ${commentId}`);
 
   // 处理302场景
   // https://v.youku.com/video?vid=XNjQ4MTIwOTE2NA==&tpa=dW5pb25faWQ9MTAyMjEzXzEwMDAwNl8wMV8wMQ需要转成https://v.youku.com/v_show/id_XNjQ4MTIwOTE2NA==.html
-  if (url.includes("youku.com/video?vid")) {
+  if (url。includes("youku.com/video?vid")) {
       url = convertYoukuUrl(url);
   }
 
-  log("log", "开始从本地请求弹幕...", url);
+  log("log"， "开始从本地请求弹幕..."， url);
   let danmus = [];
   if (url.includes('.qq.com')) {
       danmus = await fetchTencentVideo(url);
   }
-  if (url.includes('.iqiyi.com')) {
+  if (url。includes('.iqiyi.com')) {
       danmus = await fetchIqiyi(url);
   }
-  if (url.includes('.mgtv.com')) {
+  if (url。includes('.mgtv.com')) {
       danmus = await fetchMangoTV(url);
   }
-  if (url.includes('.bilibili.com')) {
+  if (url。includes('.bilibili.com')) {
       danmus = await fetchBilibili(url);
   }
-  if (url.includes('.youku.com')) {
+  if (url。includes('.youku.com')) {
       danmus = await fetchYouku(url);
   }
 
   // 请求人人弹幕
   const urlPattern = /^(https?:\/\/)?([\w.-]+)\.([a-z]{2,})(\/.*)?$/i;
-  if (!urlPattern.test(url)) {
+  if (!urlPattern。test(url)) {
       danmus = await getRenRenComments(url);
   }
 
   // 如果弹幕为空，则请求第三方弹幕服务器作为兜底
-  if (danmus.length === 0) {
+  if (danmus。length === 0) {
     danmus = await fetchOtherServer(url);
   }
 
-  return jsonResponse({ count: danmus.length, comments: danmus });
+  return jsonResponse({ count: danmus。length， comments: danmus });
 }
 
-// 修改 handleHomepage 函数，网页访问返回 HTML 而不是 JSON
-function handleHomepage(req) {
-  log("log", "Accessed homepage with repository information");
-  
-  const data = {
-    message: "Welcome to the LogVar Danmu API server",
-    version: VERSION,
-    repository: "https://github.com/huangxd-/danmu_api.git",
-    description: "一个人人都能部署的基于 js 的弹幕 API 服务器，支持爱优腾芒哔人弹幕直接获取，兼容弹弹play的搜索、详情查询和弹幕获取接口，并提供日志记录，支持vercel/cloudflare/docker/claw等部署方式，不用提前下载弹幕，没有nas或小鸡也能一键部署。",
-    notice: "本项目仅为个人爱好开发，代码开源。如有任何侵权行为，请联系本人删除。有问题提issue或私信机器人都ok。https://t.me/ddjdd_bot"
-  };
+// 智能检测是否为浏览器访问的辅助函数
+function isBrowserRequest(req) {
+  try {
+    const userAgent = (req.headers.get('user-agent') || '').toLowerCase();
+    const accept = (req.headers.get('accept') || '').toLowerCase();
+    
+    // 检测浏览器特征
+    const hasBrowserUA = userAgent.includes('mozilla') || 
+                        userAgent.includes('chrome') || 
+                        userAgent.includes('safari') || 
+                        userAgent.includes('edge') ||
+                        userAgent.includes('firefox');
+    
+    // 排除API工具和爬虫
+    const isApiTool = userAgent.includes('curl') || 
+                     userAgent.includes('wget') || 
+                     userAgent.includes('postman') || 
+                     userAgent.includes('insomnia') ||
+                     userAgent.includes('httpie') ||
+                     userAgent.includes('bot') ||
+                     userAgent.includes('spider');
+    
+    // 检查Accept头是否优先HTML
+    const prefersHtml = accept.includes('text/html') && 
+                       (!accept.includes('application/json') || 
+                        accept.indexOf('text/html') < accept.indexOf('application/json'));
+    
+    return (hasBrowserUA && !isApiTool) || prefersHtml;
+  } catch (error) {
+    // 如果检测出错，默认返回false以确保API功能
+    return false;
+  }
+}
 
-  // 检查请求头，如果是浏览器访问则返回 HTML，否则返回 JSON
-  const userAgent = req.headers.get('user-agent') || '';
-  const acceptHeader = req.headers.get('accept') || '';
-  
-  if (acceptHeader.includes('text/html')) {
-    // 返回 HTML 页面
-    const html = `
-<!DOCTYPE html>
+// 修改后的 handleRequest 函数
+async function handleRequest(req, env) {
+  token = resolveToken(env);  // 每次请求动态获取，确保热更新环境变量后也能生效
+  otherServer = resolveOtherServer(env);
+  vodServer = resolveVodServer(env);
+  bilibliCookie = resolveBilibiliCookie(env);
+  youkuConcurrency = resolveYoukuConcurrency(env);
+  sourceOrderArr = resolveSourceOrder(env);
+
+  const url = new URL(req.url);
+  let path = url.pathname;
+  const method = req.method;
+
+  function handleHomepage() {
+    log("log", "Accessed homepage with repository information");
+    
+    const data = {
+      message: "Welcome to the LogVar Danmu API server",
+      version: VERSION,
+      repository: "https://github.com/huangxd-/danmu_api.git",
+      description: "一个人人都能部署的基于 js 的弹幕 API 服务器，支持爱优腾芒哔人弹幕直接获取，兼容弹弹play的搜索、详情查询和弹幕获取接口，并提供日志记录，支持vercel/cloudflare/docker/claw等部署方式，不用提前下载弹幕，没有nas或小鸡也能一键部署。",
+      notice: "本项目仅为个人爱好开发，代码开源。如有任何侵权行为，请联系本人删除。有问题提issue或私信机器人都ok。https://t.me/ddjdd_bot"
+    };
+
+    // 判断返回格式
+    const forceJson = url.searchParams.get('json') !== null || url.searchParams.get('api') !== null;
+    const forceHtml = url.searchParams.get('web') !== null || url.searchParams.get('html') !== null;
+    
+    let showHtml = false;
+    if (forceJson) {
+      showHtml = false;
+    } else if (forceHtml) {
+      showHtml = true;
+    } else {
+      showHtml = isBrowserRequest(req);
+    }
+    
+    if (showHtml) {
+      const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -3186,18 +3239,30 @@ function handleHomepage(req) {
             padding: 30px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        h1 { color: #333; }
+        h1 { color: #333; margin-bottom: 20px; }
         .info { margin: 15px 0; }
         .label { font-weight: bold; color: #666; }
         .description { line-height: 1.6; margin: 15px 0; }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        pre { background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        .status { color: #28a745; font-weight: bold; }
+        .api-links { margin-top: 30px; }
+        .api-link { 
+            display: inline-block; 
+            margin: 5px 10px 5px 0; 
+            padding: 8px 16px; 
+            background: #007bff; 
+            color: white; 
+            border-radius: 4px; 
+            text-decoration: none; 
+        }
+        .api-link:hover { background: #0056b3; color: white; }
+        code { background: #f8f9fa; padding: 2px 6px; border-radius: 3px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>LogVar Danmu API Server</h1>
+        <h1>🎬 LogVar Danmu API Server</h1>
         <div class="info">
             <span class="label">版本:</span> ${data.version}
         </div>
@@ -3213,37 +3278,31 @@ function handleHomepage(req) {
             ${data.notice}
         </div>
         <div class="info">
-            <span class="label">API 状态:</span> ✅ 运行中
+            <span class="label">API 状态:</span> <span class="status">✅ 运行中</span>
+        </div>
+        <div class="api-links">
+            <span class="label">快捷访问:</span><br>
+            <a href="api/logs?web" class="api-link">📋 查看日志</a>
+            <a href="?json" class="api-link">📄 JSON 格式</a>
+        </div>
+        <div class="info" style="margin-top: 20px; font-size: 0.9em; color: #666;">
+            <strong>提示:</strong> API 调用会自动返回 JSON，浏览器访问会显示此页面。<br>
+            如需强制格式，可添加参数: <code>?json</code> 或 <code>?web</code>
         </div>
     </div>
 </body>
 </html>`;
-
-    return new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    });
-  } else {
-    // API 调用时返回原有的 JSON 格式
-    return jsonResponse(data);
+      return new Response(html, {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    } else {
+      return jsonResponse(data);
+    }
   }
-}
-
-// 修改后的完整 handleRequest 函数路由部分
-async function handleRequest(req, env) {
-  token = resolveToken(env);  // 每次请求动态获取，确保热更新环境变量后也能生效
-  otherServer = resolveOtherServer(env);
-  vodServer = resolveVodServer(env);
-  bilibliCookie = resolveBilibiliCookie(env);
-  youkuConcurrency = resolveYoukuConcurrency(env);
-  sourceOrderArr = resolveSourceOrder(env);
-
-  const url = new URL(req.url);
-  let path = url.pathname;
-  const method = req.method;
 
   // GET /
   if (path === "/" && method === "GET") {
-    return handleHomepage(req);
+    return handleHomepage();
   }
 
   if (path === "/favicon.ico" || path === "/robots.txt") {
@@ -3264,9 +3323,9 @@ async function handleRequest(req, env) {
 
   log("log", path);
 
-  // GET / (带token的根路径)
+  // GET /
   if (path === "/" && method === "GET") {
-    return handleHomepage(req);
+    return handleHomepage();
   }
 
   // GET /api/v2/search/anime
@@ -3279,7 +3338,7 @@ async function handleRequest(req, env) {
     return searchEpisodes(url);
   }
 
-  // POST /api/v2/match
+  // GET /api/v2/match
   if (path === "/api/v2/match" && method === "POST") {
     return matchAnime(url, req);
   }
@@ -3294,10 +3353,19 @@ async function handleRequest(req, env) {
     return getComment(path);
   }
 
-  // GET /api/logs (修改这部分)
+  // GET /api/logs
   if (path === "/api/logs" && method === "GET") {
-    const userAgent = req.headers.get('user-agent') || '';
-    const acceptHeader = req.headers.get('accept') || '';
+    const forceJson = url.searchParams.get('json') !== null || url.searchParams.get('api') !== null;
+    const forceHtml = url.searchParams.get('web') !== null || url.searchParams.get('html') !== null;
+    
+    let showHtml = false;
+    if (forceJson) {
+      showHtml = false;
+    } else if (forceHtml) {
+      showHtml = true;
+    } else {
+      showHtml = isBrowserRequest(req);
+    }
     
     const logText = logBuffer
       .map(
@@ -3306,10 +3374,8 @@ async function handleRequest(req, env) {
       )
       .join("\n");
 
-    if (acceptHeader.includes('text/html')) {
-      // 返回 HTML 页面
-      const html = `
-<!DOCTYPE html>
+    if (showHtml) {
+      const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -3342,41 +3408,66 @@ async function handleRequest(req, env) {
             word-wrap: break-word;
             max-height: 80vh;
             overflow-y: auto;
+            line-height: 1.4;
         }
-        .refresh-btn {
-            position: fixed;
-            top: 20px;
-            right: 20px;
+        .controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .btn {
             background: #007bff;
             color: white;
             border: none;
             padding: 10px 20px;
             border-radius: 4px;
             cursor: pointer;
+            margin: 0 10px;
+            text-decoration: none;
+            display: inline-block;
         }
-        .refresh-btn:hover {
+        .btn:hover {
             background: #0056b3;
+        }
+        .btn.refresh {
+            background: #28a745;
+        }
+        .btn.refresh:hover {
+            background: #218838;
+        }
+        .stats {
+            color: #ffc107;
+            margin-bottom: 15px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>API 日志监控</h1>
-        <button class="refresh-btn" onclick="location.reload()">刷新日志</button>
+        <h1>📊 API 日志监控</h1>
+        <div class="controls">
+            <button class="btn refresh" onclick="location.reload()">🔄 刷新日志</button>
+            <a href="../?web" class="btn">🏠 返回首页</a>
+            <button class="btn" onclick="autoScroll()">⬇️ 滚动到底部</button>
+        </div>
+        <div class="stats">
+            日志总数: ${logBuffer ? logBuffer.length : 0} 条
+        </div>
         <pre id="logs">${logText || '暂无日志记录'}</pre>
     </div>
     <script>
-        // 自动滚动到底部
-        document.getElementById('logs').scrollTop = document.getElementById('logs').scrollHeight;
+        function autoScroll() {
+            const logs = document.getElementById('logs');
+            logs.scrollTop = logs.scrollHeight;
+        }
+        window.onload = function() {
+            autoScroll();
+        };
     </script>
 </body>
 </html>`;
-
       return new Response(html, {
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
     } else {
-      // API 调用时返回原有的纯文本格式
       return new Response(logText, { 
         headers: { "Content-Type": "text/plain; charset=utf-8" } 
       });
