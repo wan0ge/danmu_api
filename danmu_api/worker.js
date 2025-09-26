@@ -2482,7 +2482,7 @@ function log(level, ...args) {
   const message = args
     .map((arg) => (typeof arg === "object" ? JSON.stringify(arg) : arg))
     .join(" ");
-  const timestamp = new Date().toISOString();
+  const timestamp = new Date().toString();
   logBuffer.push({ timestamp, level, message });
   if (logBuffer.length > MAX_LOGS) logBuffer.shift();
   console[level](...args);
@@ -3105,46 +3105,127 @@ async function getComment(path) {
   let url = findUrlById(commentId);
   if (!url) {
     log("error", `Comment with ID ${commentId} not found`);
-    return jsonResponse({ count: 0， comments: [] }, 404);
+    return jsonResponse({ count: 0, comments: [] }, 404);
   }
-  log("log"， `Fetched comment ID: ${commentId}`);
+  log("log", `Fetched comment ID: ${commentId}`);
 
   // 处理302场景
   // https://v.youku.com/video?vid=XNjQ4MTIwOTE2NA==&tpa=dW5pb25faWQ9MTAyMjEzXzEwMDAwNl8wMV8wMQ需要转成https://v.youku.com/v_show/id_XNjQ4MTIwOTE2NA==.html
-  if (url。includes("youku.com/video?vid")) {
+  if (url.includes("youku.com/video?vid")) {
       url = convertYoukuUrl(url);
   }
 
-  log("log"， "开始从本地请求弹幕..."， url);
+  log("log", "开始从本地请求弹幕...", url);
   let danmus = [];
   if (url.includes('.qq.com')) {
       danmus = await fetchTencentVideo(url);
   }
-  if (url。includes('.iqiyi.com')) {
+  if (url.includes('.iqiyi.com')) {
       danmus = await fetchIqiyi(url);
   }
-  if (url。includes('.mgtv.com')) {
+  if (url.includes('.mgtv.com')) {
       danmus = await fetchMangoTV(url);
   }
-  if (url。includes('.bilibili.com')) {
+  if (url.includes('.bilibili.com')) {
       danmus = await fetchBilibili(url);
   }
-  if (url。includes('.youku.com')) {
+  if (url.includes('.youku.com')) {
       danmus = await fetchYouku(url);
   }
 
   // 请求人人弹幕
   const urlPattern = /^(https?:\/\/)?([\w.-]+)\.([a-z]{2,})(\/.*)?$/i;
-  if (!urlPattern。test(url)) {
+  if (!urlPattern.test(url)) {
       danmus = await getRenRenComments(url);
   }
 
   // 如果弹幕为空，则请求第三方弹幕服务器作为兜底
-  if (danmus。length === 0) {
+  if (danmus.length === 0) {
     danmus = await fetchOtherServer(url);
   }
 
-  return jsonResponse({ count: danmus。length， comments: danmus });
+  return jsonResponse({ count: danmus.length, comments: danmus });
+}
+
+// 修改 handleHomepage 函数，返回 HTML 而不是 JSON
+function handleHomepage(req) {
+  log("log", "Accessed homepage with repository information");
+  
+  const data = {
+    message: "Welcome to the LogVar Danmu API server",
+    version: VERSION,
+    repository: "https://github.com/huangxd-/danmu_api.git",
+    description: "一个人人都能部署的基于 js 的弹幕 API 服务器，支持爱优腾芒哔人弹幕直接获取，兼容弹弹play的搜索、详情查询和弹幕获取接口，并提供日志记录，支持vercel/cloudflare/docker/claw等部署方式，不用提前下载弹幕，没有nas或小鸡也能一键部署。",
+    notice: "本项目仅为个人爱好开发，代码开源。如有任何侵权行为，请联系本人删除。有问题提issue或私信机器人都ok。https://t.me/ddjdd_bot"
+  };
+
+  // 检查请求头，如果是浏览器访问则返回 HTML，否则返回 JSON
+  const userAgent = req.headers.get('user-agent') || '';
+  const acceptHeader = req.headers.get('accept') || '';
+  
+  if (acceptHeader.includes('text/html')) {
+    // 返回 HTML 页面
+    const html = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogVar Danmu API Server</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .info { margin: 15px 0; }
+        .label { font-weight: bold; color: #666; }
+        .description { line-height: 1.6; margin: 15px 0; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LogVar Danmu API Server</h1>
+        <div class="info">
+            <span class="label">版本:</span> ${data.version}
+        </div>
+        <div class="info">
+            <span class="label">项目地址:</span> <a href="${data.repository}" target="_blank">${data.repository}</a>
+        </div>
+        <div class="description">
+            <span class="label">项目描述:</span><br>
+            ${data.description}
+        </div>
+        <div class="description">
+            <span class="label">注意事项:</span><br>
+            ${data.notice}
+        </div>
+        <div class="info">
+            <span class="label">API 状态:</span> ✅ 运行中
+        </div>
+    </div>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" }
+    });
+  } else {
+    // API 调用时返回原有的 JSON 格式
+    return jsonResponse(data);
+  }
 }
 
 // 智能检测是否为浏览器访问的辅助函数
@@ -3476,7 +3557,6 @@ async function handleRequest(req, env) {
 
   return jsonResponse({ message: "Not found" }, 404);
 }
-
 
 
 
