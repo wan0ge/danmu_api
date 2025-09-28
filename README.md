@@ -187,7 +187,11 @@ Settings > Functions > Advanced Setting > Function Region 切换为 Hong Kong，
 <img src="https://i.mji.rip/2025/09/14/9fdf945fb247994518042691f60d7849.jpeg" style="width:400px" />
 <img src="https://i.mji.rip/2025/09/14/dbacc0cf9c8a839f16b8960de1f38f11.jpeg" style="width:400px" />
 
-> 注意：小幻在填写API的时候需要在API后面加上`/api/v2`，如`http://192.168.1.7:9321/87654321/api/v2`
+> 注意：
+>
+> ~~小幻在填写API的时候需要在API后面加上`/api/v2`，如`http://192.168.1.7:9321/87654321/api/v2`~~
+> 
+> （已对小幻做兼容，`/api/v2`可加可不加都可以正确处理）
 > 
 > 有很多人问FW能不能用，FW推荐直接使用插件，如果非要使用，则可以配合 `https://raw.githubusercontent.com/huangxd-/ForwardWidgets/refs/heads/main/widgets.fwd` 里的`danmu_api`插件使用
 
