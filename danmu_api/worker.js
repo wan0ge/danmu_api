@@ -3406,7 +3406,7 @@ async function handleRequest(req, env) {
       const pathBeforeCleanup = path; // 保存清理前的路径检查是否修改
       
       // 1. 清理：应对“用户填写/api/v2”+“客户端添加/api/v2”导致的重复前缀
-      while (path。startsWith('/api/v2/api/v2/')) {
+      while (path.startsWith('/api/v2/api/v2/')) {
           log('log', `[Path Check] Found redundant /api/v2 prefix. Cleaning...`);
           // 从第二个 /api/v2 的位置开始截取，相当于移除第一个
           path = path.substring('/api/v2'.length);
@@ -3421,7 +3421,7 @@ async function handleRequest(req, env) {
       
       // 2. 补全：如果路径缺少前缀（例如请求原始路径为 /search/anime），则补全
       const pathBeforePrefixCheck = path;
-      if (!path。startsWith('/api/v2') && path !== '/' && !path.startsWith('/api/logs')) {
+      if (!path.startsWith('/api/v2') && path !== '/' && !path.startsWith('/api/logs')) {
           log('log', `[Path Prefix] Path is missing /api/v2 prefix. Adding...`);
           path = '/api/v2' + path;
       }
