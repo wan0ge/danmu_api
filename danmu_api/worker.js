@@ -3402,7 +3402,7 @@ async function handleRequest(req, env) {
 
   // 智能处理API路径前缀，确保最终有一个正确的 /api/v2
   if (path !== "/" && path !== "/api/logs") {
-      log('log'， `[Path Check] Starting path normalization for: "${path}"`);
+      log('log', `[Path Check] Starting path normalization for: "${path}"`);
       const pathBeforeCleanup = path; // 保存清理前的路径检查是否修改
       
       // 1. 清理：应对“用户填写/api/v2”+“客户端添加/api/v2”导致的重复前缀
@@ -3414,7 +3414,7 @@ async function handleRequest(req, env) {
       
       // 打印日志：只有在发生清理时才显示清理后的路径，否则显示“无需清理”
       if (path !== pathBeforeCleanup) {
-          log('log'， `[Path Check] Path after cleanup: "${path}"`);
+          log('log', `[Path Check] Path after cleanup: "${path}"`);
       } else {
           log('log', `[Path Check] Path after cleanup: No cleanup needed.`);
       }
@@ -3422,7 +3422,7 @@ async function handleRequest(req, env) {
       // 2. 补全：如果路径缺少前缀（例如请求原始路径为 /search/anime），则补全
       const pathBeforePrefixCheck = path;
       if (!path。startsWith('/api/v2') && path !== '/' && !path.startsWith('/api/logs')) {
-          log('log'， `[Path Prefix] Path is missing /api/v2 prefix. Adding...`);
+          log('log', `[Path Prefix] Path is missing /api/v2 prefix. Adding...`);
           path = '/api/v2' + path;
       }
         
