@@ -3422,7 +3422,7 @@ async function handleRequest(req, env) {
       // 2. 补全：如果路径缺少前缀（例如请求原始路径为 /search/anime），则补全
       const pathBeforePrefixCheck = path;
       if (!path.startsWith('/api/v2') && path !== '/' && !path.startsWith('/api/logs')) {
-          log('log', `[Path Prefix] Path is missing /api/v2 prefix. Adding...`);
+          log('log', `[Path Check] Path is missing /api/v2 prefix. Adding...`);
           path = '/api/v2' + path;
       }
         
