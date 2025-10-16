@@ -221,7 +221,7 @@ LogVar 弹幕 API 服务器
 > 
 > （已对小幻做兼容，`/api/v2`可加可不加都可以正确处理）
 > 
-> 小幻在使用时可能出现掉匹配无法加载弹幕的问题，详见#33，可以通过配置环境变量`UPSTASH_REDIS_REST_URL`和`UPSTASH_REDIS_REST_TOKEN`，开启upstash redis存储解决
+> 小幻在使用时可能出现掉匹配无法加载弹幕的问题，详见[这个issue](https://github.com/huangxd-/danmu_api/issues/33)，可以通过配置环境变量`UPSTASH_REDIS_REST_URL`和`UPSTASH_REDIS_REST_TOKEN`，开启upstash redis存储解决
 > 
 > 有很多人问FW能不能用，FW推荐直接使用插件，如果非要使用，则可以配合 `https://raw.githubusercontent.com/huangxd-/ForwardWidgets/refs/heads/main/widgets.fwd` 里的`danmu_api`插件使用
 
