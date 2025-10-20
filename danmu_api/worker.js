@@ -4336,42 +4336,18 @@ async function getHanjutvComments(pid, progressCallback=null){
 }
 
 // ---------------------
-// 使用TMDB API 查询Taiwan译名搜索bahamut相关函数
+// 使用TMDB API 查询日语原名搜索bahamut相关函数
 // ---------------------
-async function getTmdbZhTwTitle(title) {
+async function getTmdbJaOriginalTitle(title) {
   if (!tmdbApiKey) {
     log("info", "[TMDB] 未配置API密钥，跳过TMDB搜索");
     return null;
   }
 
   try {
-    // 使用代理 URL 构建请求地址
-    const searchUrl = proxyUrl 
-      ? `${proxyUrl}?url=https://api.themoviedb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-TW`
-      : `https://api.themoviedb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-TW`;
-
-    log("info", `[TMDB] 正在搜索: ${title}`);
-
-    const resp = await httpGet(searchUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-      },
-    });
-
-    if (!resp || !resp.data) {
-      log("info", "[TMDB] 搜索结果为空");
-      return null;
-    }
-
-    const data = typeof resp.data === "string" ? JSON.parse(resp.data) : resp.data;
-
-    if (!data.results || data.results.length === 0) {
-      log("info", "[TMDB] 未找到任何结果");
-      return null;
-    }
-
-    // 计算相似度函数
+    // ---------------------
+    // 相似度函数
+    // ---------------------
     function similarity(s1, s2) {
       const longer = s1.length > s2.length ? s1 : s2;
       const shorter = s1.length > s2.length ? s2 : s1;
@@ -4403,26 +4379,56 @@ async function getTmdbZhTwTitle(title) {
       return (longer.length - editDistance(longer, shorter)) / longer.length;
     }
 
-    // 找到最相似的结果
-    let bestMatch = data.results[0];
+    // ---------------------
+    // 第一步: 中文搜索
+    // ---------------------
+    const searchUrlZh = proxyUrl 
+      ? `${proxyUrl}?url=https://api.themoviedb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`
+      : `https://api.themoviedb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`;
+
+    log("info", `[TMDB] 正在搜索(中文): ${title}`);
+
+    const respZh = await httpGet(searchUrlZh, {
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    });
+
+    if (!respZh || !respZh.data) {
+      log("info", "[TMDB] 中文搜索结果为空");
+      return null;
+    }
+
+    const dataZh = typeof respZh.data === "string" ? JSON.parse(respZh.data) : respZh.data;
+
+    if (!dataZh.results || dataZh.results.length === 0) {
+      log("info", "[TMDB] 中文搜索未找到任何结果");
+      return null;
+    }
+
+    // 找到最相似的结果(使用中文标题)
+    let bestMatch = dataZh.results[0];
     let bestScore = 0;
 
-    for (const result of data.results) {
-      // 优先使用 name (TV) 或 title (Movie)
+    for (const result of dataZh.results) {
       const resultTitle = result.name || result.title || "";
       const score = similarity(title, resultTitle);
-      
       if (score > bestScore) {
         bestScore = score;
         bestMatch = result;
       }
     }
 
-    // 获取详情页以获取完整的别名信息
+    log("info", `[TMDB] 最佳匹配(中文): ${bestMatch.name || bestMatch.title}, 相似度: ${(bestScore * 100).toFixed(2)}%`);
+
+    // ---------------------
+    // 第二步: 使用匹配到的ID,用日语语言查询详情页获取原名
+    // ---------------------
     const mediaType = bestMatch.media_type || (bestMatch.name ? "tv" : "movie");
     const detailUrl = proxyUrl
-      ? `${proxyUrl}?url=https://api.themoviedb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=zh-TW`
-      : `https://api.themoviedb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=zh-TW`;
+      ? `${proxyUrl}?url=https://api.themoviedb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=ja-JP`
+      : `https://api.themoviedb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=ja-JP`;
 
     const detailResp = await httpGet(detailUrl, {
       headers: {
@@ -4432,19 +4438,19 @@ async function getTmdbZhTwTitle(title) {
     });
 
     if (!detailResp || !detailResp.data) {
-      // 如果获取详情失败,返回搜索结果中的标题
-      const zhTwTitle = bestMatch.name || bestMatch.title;
-      log("info", `[TMDB] 使用搜索结果标题: ${zhTwTitle}`);
-      return zhTwTitle;
+      // 获取详情失败,返回中文搜索结果标题
+      const fallbackTitle = bestMatch.name || bestMatch.title;
+      log("info", `[TMDB] 使用中文搜索结果标题: ${fallbackTitle}`);
+      return fallbackTitle;
     }
 
     const detail = typeof detailResp.data === "string" ? JSON.parse(detailResp.data) : detailResp.data;
-    
-    // 优先使用 name/title,这已经是繁体中文版本
-    const zhTwTitle = detail.name || detail.title;
-    log("info", `[TMDB] 找到繁體中文标题：: ${zhTwTitle} (相似度: ${(bestScore * 100).toFixed(2)}%)`);
-    
-    return zhTwTitle;
+
+    // 优先使用日语原名 original_name/original_title
+    const jaOriginalTitle = detail.original_name || detail.original_title || detail.name || detail.title;
+    log("info", `[TMDB] 找到日语原名: ${jaOriginalTitle} (中文匹配相似度: ${(bestScore * 100).toFixed(2)}%)`);
+
+    return jaOriginalTitle;
 
   } catch (error) {
     log("error", "[TMDB] Search error:", {
@@ -4456,12 +4462,16 @@ async function getTmdbZhTwTitle(title) {
   }
 }
 
+
 // ---------------------
 // bahamut视频弹幕
 // ---------------------
-async function bahamutSearch(keyword) {
+async function bahamutSearch(keyword, originalKeyword = null) {  // 增加 originalKeyword 参数,默认为 null
   try {
+    // 如果没有传入原始关键字,则使用转换后的关键字
+    const tmdbSearchKeyword = originalKeyword || keyword;
     // 先只执行原始 bahamut 搜索（同步等待结果）
+	const encodedKeyword = encodeURIComponent(keyword);
     const url = proxyUrl
       ? `${proxyUrl}?url=https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw=${keyword}`
       : `https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw=${keyword}`;
@@ -4495,7 +4505,7 @@ async function bahamutSearch(keyword) {
 
     // 原始搜索没有结果时，才调用 TMDB 转换（顺序执行）
     log("info", "[Bahamut] 原始搜索未返回结果，尝试转换TMDB标题...");
-    const tmdbTitle = await getTmdbZhTwTitle(keyword);
+    const tmdbTitle = await getTmdbJaOriginalTitle(tmdbSearchKeyword);  // 使用未转换的原始关键字
 
     if (!tmdbTitle) {
       log("info", "[Bahamut] TMDB转换未返回标题，中止搜索并转入备用方案.");
@@ -5065,13 +5075,20 @@ async function handleBahamutAnimes(animesBahamut, queryTitle, curAnimes) {
     return false;
   }
 
-  // 安全措施：确保一定是数组类型
+  // 安全措施:确保一定是数组类型
   const arr = Array.isArray(animesBahamut) ? animesBahamut : [];
 
-  // 使用稳健匹配器过滤项目，同时利用之前注入的 _searchUsedTitle 字段
+  // 使用稳健匹配器过滤项目,同时利用之前注入的 _searchUsedTitle 字段
   const filtered = arr.filter(item => {
     const itemTitle = item.title || "";
     const usedSearchTitle = item._searchUsedTitle || item._originalQuery || "";
+    
+    // 如果有 _searchUsedTitle 字段(表示是TMDB搜索结果),则跳过标题匹配,直接保留
+    if (item._searchUsedTitle && item._searchUsedTitle !== queryTitle) {
+      log("info", `[Bahamut] TMDB结果直接保留: ${itemTitle}`);
+      return true;
+    }
+    
     return bahamutTitleMatches(itemTitle, queryTitle, usedSearchTitle);
   });
 
@@ -5260,7 +5277,7 @@ async function searchAnime(url) {
       if (source === "vod") return getVodAnimesFromAllServers(queryTitle, vodServers);
       if (source === "renren") return renrenSearch(queryTitle);
       if (source === "hanjutv") return hanjutvSearch(queryTitle);
-      if (source === "bahamut") return bahamutSearch(traditionalized(queryTitle));
+      if (source === "bahamut") return bahamutSearch(traditionalized(queryTitle), queryTitle);  // 第一个参数是转换后的,第二个参数是原始的
       if (source === "tencent") return tencentSearch(queryTitle);
     });
 
