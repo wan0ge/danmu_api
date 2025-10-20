@@ -4382,9 +4382,7 @@ async function getTmdbJaOriginalTitle(title) {
     // ---------------------
     // 第一步: 中文搜索
     // ---------------------
-    const searchUrlZh = proxyUrl 
-      ? `${proxyUrl}?url=https://api.themoviedb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`
-      : `https://api.themoviedb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`;
+    const searchUrlZh = `https://api.tmdb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`;
 
     log("info", `[TMDB] 正在搜索(中文): ${title}`);
 
@@ -4426,9 +4424,7 @@ async function getTmdbJaOriginalTitle(title) {
     // 第二步: 使用匹配到的ID,用日语语言查询详情页获取原名
     // ---------------------
     const mediaType = bestMatch.media_type || (bestMatch.name ? "tv" : "movie");
-    const detailUrl = proxyUrl
-      ? `${proxyUrl}?url=https://api.themoviedb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=ja-JP`
-      : `https://api.themoviedb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=ja-JP`;
+    const detailUrl = `https://api.tmdb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=ja-JP`;
 
     const detailResp = await httpGet(detailUrl, {
       headers: {
