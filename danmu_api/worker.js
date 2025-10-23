@@ -1,6 +1,6 @@
 // 全局状态（Cloudflare 和 Vercel 都可能重用实例）
 // ⚠️ 不是持久化存储，每次冷启动会丢失
-const VERSION = "1.4.5";
+const VERSION = "1.4.5.cool";
 let animes = [];
 let episodeIds = [];
 let episodeNum = 10001; // 全局变量，用于自增 ID
@@ -279,14 +279,50 @@ function resolveGroupMinute(env) {
   return Math.min(DEFAULT_GROUP_MINUTE, 30);
 }
 
-const DEFAULT_PROXY_URL = ""; // 默认 代理地址
+const DEFAULT_PROXY_URL = ""; // 默认 代理/反代地址
 let proxyUrl = DEFAULT_PROXY_URL;
+let reverseProxyUrl = "";
+let isReverseProxy = false;
+
+// 解析 PROXY_URL：区分代理地址和反代地址
+function parseProxyConfig(proxyConfig) {
+  if (!proxyConfig) {
+    return { isReverse: false, url: "" };
+  }
+  
+  // 检查是否以 "RP@" 开头（反代模式）
+  if (proxyConfig.startsWith("RP@")) {
+    let reverseUrl = proxyConfig.substring(3).trim(); // 去除 "RP@" 前缀
+    // 去除末尾多余的斜杠
+    reverseUrl = reverseUrl.replace(/\/+$/, "");
+    return { isReverse: true, url: reverseUrl };
+  }
+  
+  // 代理模式
+  return { isReverse: false, url: proxyConfig };
+}
 
 // 这里既支持 Cloudflare env，也支持 Node process.env
 function resolveProxyUrl(env) {
-  if (env && env.PROXY_URL) return env.PROXY_URL;         // Cloudflare Workers
-  if (typeof process !== "undefined" && process.env?.PROXY_URL) return process.env.PROXY_URL; // Vercel / Node
-  return DEFAULT_PROXY_URL;
+  let proxyConfig = "";
+  if (env && env.PROXY_URL) {
+    proxyConfig = env.PROXY_URL;
+  } else if (typeof process !== "undefined" && process.env?.PROXY_URL) {
+    proxyConfig = process.env.PROXY_URL;
+  } else {
+    proxyConfig = DEFAULT_PROXY_URL;
+  }
+  
+  // 解析配置：判断是代理还是反代
+  const parsed = parseProxyConfig(proxyConfig);
+  isReverseProxy = parsed.isReverse;
+  
+  if (isReverseProxy) {
+    reverseProxyUrl = parsed.url;
+    return ""; // 反代模式下不使用代理
+  } else {
+    return parsed.url; // 代理模式
+  }
 }
 
 const DEFAULT_TMDB_API_KEY = ""; // 默认 TMDB API KEY
@@ -4386,9 +4422,7 @@ async function getTmdbJaOriginalTitle(title) {
   }
 
   try {
-    // ---------------------
     // 相似度函数
-    // ---------------------
     function similarity(s1, s2) {
       const longer = s1.length > s2.length ? s1 : s2;
       const shorter = s1.length > s2.length ? s2 : s1;
@@ -4420,9 +4454,7 @@ async function getTmdbJaOriginalTitle(title) {
       return (longer.length - editDistance(longer, shorter)) / longer.length;
     }
 
-    // ---------------------
     // 第一步: 中文搜索
-    // ---------------------
     const searchUrlZh = `https://api.tmdb.org/3/search/multi?api_key=${tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`;
 
     log("info", `[TMDB] 正在搜索(中文): ${title}`);
@@ -4461,9 +4493,7 @@ async function getTmdbJaOriginalTitle(title) {
 
     log("info", `[TMDB] 最佳匹配(中文): ${bestMatch.name || bestMatch.title}, 相似度: ${(bestScore * 100).toFixed(2)}%`);
 
-    // ---------------------
     // 第二步: 使用匹配到的ID,用日语语言查询详情页获取原名
-    // ---------------------
     const mediaType = bestMatch.media_type || (bestMatch.name ? "tv" : "movie");
     const detailUrl = `https://api.tmdb.org/3/${mediaType}/${bestMatch.id}?api_key=${tmdbApiKey}&language=ja-JP`;
 
@@ -4499,10 +4529,29 @@ async function getTmdbJaOriginalTitle(title) {
   }
 }
 
-
 // ---------------------
 // bahamut视频弹幕
 // ---------------------
+
+// 构建巴哈姆特 API URL（统一处理反代/代理/直连三种模式）
+function buildBahamutUrl(apiPath) {
+  if (!apiPath.startsWith("/")) {
+    apiPath = "/" + apiPath;
+  }
+  
+  if (isReverseProxy) {
+    // 反代模式：使用用户配置的反代地址
+    return `${reverseProxyUrl}${apiPath}`;
+  } else if (proxyUrl) {
+    // 代理模式：通过代理服务器访问原始巴哈 API
+    const originalUrl = `https://api.gamer.com.tw${apiPath}`;
+    return `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(originalUrl)}`;
+  } else {
+    // 直连模式：直接访问原始巴哈 API
+    return `https://api.gamer.com.tw${apiPath}`;
+  }
+}
+// 具体搜索部分
 async function bahamutSearch(keyword) {
   try {
     // 在函数内部进行简转繁
@@ -4513,9 +4562,8 @@ async function bahamutSearch(keyword) {
 
     // 使用 traditionalizedKeyword 进行巴哈姆特搜索
 	const encodedKeyword = encodeURIComponent(traditionalizedKeyword);
-    const url = proxyUrl
-      ? `http://127.0.0.1:5321/proxy?url=https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw=${encodedKeyword}`
-      : `https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw=${encodedKeyword}`;
+    // 构建搜索 URL
+    const url = buildBahamutUrl(`/mobile_app/anime/v1/search.php?kw=${encodedKeyword}`);
     
     log("info", `[Bahamut] 传入原始搜索词: ${keyword}`);
     log("info", `[Bahamut] 使用巴哈搜索词: ${traditionalizedKeyword}`);
@@ -4559,9 +4607,8 @@ async function bahamutSearch(keyword) {
     log("info", `[Bahamut] 使用TMDB标题进行搜索: ${tmdbTitle}`);
     // 确保 TMDB 标题也被编码
     const encodedTmdbTitle = encodeURIComponent(tmdbTitle); 
-    const tmdbSearchUrl = proxyUrl
-      ? `http://127.0.0.1:5321/proxy?url=https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw=${encodedTmdbTitle}`
-      : `https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw=${encodedTmdbTitle}`;
+    // 构建 TMDB 搜索 URL
+    const tmdbSearchUrl = buildBahamutUrl(`/mobile_app/anime/v1/search.php?kw=${encodedTmdbTitle}`);
     const tmdbResp = await httpGet(tmdbSearchUrl, {
       headers: {
         "Content-Type": "application/json",
@@ -4599,8 +4646,8 @@ async function bahamutSearch(keyword) {
 
 async function getBahamutEpisodes(videoSn) {
   try {
-    const targetUrl = `https://api.gamer.com.tw/anime/v1/video.php?videoSn=${videoSn}`;
-    const url = proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(targetUrl)}` : targetUrl;
+    // 构建剧集信息 URL
+    const url = buildBahamutUrl(`/anime/v1/video.php?videoSn=${videoSn}`);
     const resp = await httpGet(url, {
       headers: {
         "Content-Type": "application/json",
@@ -4639,8 +4686,8 @@ async function fetchBahamutEpisodeDanmu(videoSn) {
   let danmus = [];
 
   try {
-    const targetUrl = `https://api.gamer.com.tw/anime/v1/danmu.php?geo=TW%2CHK&videoSn=${videoSn}`;
-    const url = proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(targetUrl)}` : targetUrl;
+    // 构建弹幕 URL
+    const url = buildBahamutUrl(`/anime/v1/danmu.php?geo=TW%2CHK&videoSn=${videoSn}`);
     const resp = await httpGet(url, {
       headers: {
         "Content-Type": "application/json",
@@ -6147,9 +6194,10 @@ async function handleRequest(req, env, deployPlatform, clientIp) {
   enableEpisodeFilter = resolveEnableEpisodeFilter(env);
   envs["enableEpisodeFilter"] = enableEpisodeFilter;
   proxyUrl = resolveProxyUrl(env);
+  envs["proxyUrl"] = proxyUrl;
+  envs["reverseProxyUrl"] = isReverseProxy ? encryptStr(reverseProxyUrl) : "";
   tmdbApiKey = resolveTmdbApiKey(env);
   envs["tmdbApiKey"] = encryptStr(tmdbApiKey);
-  envs["proxyUrl"] = proxyUrl;
   searchCacheMinutes = resolveSearchCacheMinutes(env);
   envs["searchCacheMinutes"] = searchCacheMinutes;
   commentCacheMinutes = resolveCommentCacheMinutes(env);
