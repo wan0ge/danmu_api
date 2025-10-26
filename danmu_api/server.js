@@ -274,10 +274,23 @@ function createProxyServer() {
 
     if (queryObject.url) {
       const targetUrl = queryObject.url;
-      console.log('Target URL:', targetUrl);
+      console.log('[Proxy Server] Target URL:', targetUrl);
 
-      // 从环境变量获取代理地址
-      const proxyUrl = process.env.PROXY_URL;
+      // 从环境变量获取代理配置
+      let proxyConfig = process.env.PROXY_URL;
+      let actualProxyUrl = null;
+
+      // 反代模式：通过反代连接
+      if (proxyConfig && proxyConfig.startsWith("RP@")) {
+        console.log('[Proxy Server] Reverse proxy mode detected, skipping proxy agent');
+        actualProxyUrl = null; // 反代模式下不使用代理
+      } else if (proxyConfig) {
+        // 代理模式：通过代理连接
+        actualProxyUrl = proxyConfig.replace(/\/+$/, "");
+        console.log('[Proxy Server] Using proxy:', actualProxyUrl);
+      } else {
+        console.log('[Proxy Server] No proxy configured, direct connection');
+      }
 
       const urlObj = new URL(targetUrl);
       const options = {
@@ -288,11 +301,8 @@ function createProxyServer() {
       };
 
       // 如果设置了代理，则使用代理
-      if (proxyUrl) {
-        options.agent = new HttpsProxyAgent(proxyUrl);
-        console.log('Using proxy:', proxyUrl);
-      } else {
-        console.log('No proxy configured, direct connection');
+      if (actualProxyUrl) {
+        options.agent = new HttpsProxyAgent(actualProxyUrl);
       }
 
       const protocol = urlObj.protocol === 'https:' ? https : http;
