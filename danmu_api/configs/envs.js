@@ -9,12 +9,16 @@ export class Envs {
   static VOD_ALLOWED_PLATFORMS = ['qiyi', 'bilibili1', 'imgo', 'youku', 'qq']; // vod允许的播放平台
   static ALLOWED_PLATFORMS = ['qiyi', 'bilibili1', 'imgo', 'youku', 'qq', 'renren', 'hanjutv', 'bahamut']; // 全部源允许的播放平台
   static ALLOWED_SOURCES = ['360', 'vod', 'tencent', 'youku', 'iqiyi', 'imgo', 'bilibili', 'renren', 'hanjutv', 'bahamut']; // 允许的源
+  static bahamutKeepTraditional = false; // 巴哈姆特弹幕繁体标记判断
+  static isReverseProxy = false; // 反向代理判断
+  static reverseProxyUrl = ''; // 反向代理配置
 
   /**
    * 获取环境变量
    * @param {string} key 环境变量的键
    * @param {any} defaultValue 默认值
    * @param {'string' | 'number' | 'boolean'} type 类型
+   * @param {boolean} encrypt 是否在 accessedEnvVars 中加密显示
    * @returns {any} 转换后的值
    */
   static get(key, defaultValue, type = 'string', encrypt = false) {
@@ -36,7 +40,8 @@ export class Envs {
         }
         break;
       case 'boolean':
-        parsedValue = value === 'true' || value === '1';
+        // 确保 'false' 字符串被正确解析为 false
+        parsedValue = String(value).toLowerCase() === 'true' || String(value) === '1';
         break;
       case 'string':
       default:
@@ -44,6 +49,8 @@ export class Envs {
         break;
     }
 
+    // 只有当 encrypt 为 true 且不是 PROXY_URL 或解析逻辑内部时，才进行加密，
+    // 因为 PROXY_URL 的加密逻辑将在 load 函数的最后统一处理。
     const finalValue = encrypt ? this.encryptStr(parsedValue) : parsedValue;
     this.accessedEnvVars.set(key, finalValue);
 
@@ -68,7 +75,8 @@ export class Envs {
    * @returns {string} 星号字符串
    */
   static encryptStr(str) {
-    return '*'.repeat(str.length);
+    // 确保对非空字符串进行加密
+    return str && str.length > 0 ? '*'.repeat(str.length) : '';
   }
 
   /**
@@ -110,12 +118,24 @@ export class Envs {
       sourceOrder += ',bahamut';
     }
 
+    // 重置巴哈姆特繁体标记
+    this.bahamutKeepTraditional = false;
+
     const orderArr = sourceOrder
       .split(',')
       .map(s => s.trim())
+      .map(s => {
+        // 检查 bahamut@tc 或 bahamut@TC 标记
+        if (s.toLowerCase() === 'bahamut@tc') {
+          this.bahamutKeepTraditional = true; // 设置全局标记为保持繁体
+          return 'bahamut'; // 返回标准的 bahamut 用于后续处理
+        }
+        return s;
+      })
       .filter(s => this.ALLOWED_SOURCES.includes(s));
 
     this.accessedEnvVars.set('SOURCE_ORDER', orderArr);
+    this.accessedEnvVars.set('bahamutKeepTraditional', this.bahamutKeepTraditional);
 
     return orderArr.length > 0 ? orderArr : ['360', 'vod', 'renren', 'hanjutv'];
   }
@@ -151,6 +171,7 @@ export class Envs {
       '周top|赛段|直拍|REACTION|VLOG|全纪录|开播|先导|总宣|展演|集锦|旅行日记|精彩分享|剧情揭秘';
     let keywords = defaultFilter;
 
+    // 获取并清理用户自定义过滤器
     const customFilter = this.get('EPISODE_TITLE_FILTER', '', 'string', false).replace(/^\|+|\|+$/g, '');
     if (customFilter) {
       keywords = `${keywords}|${customFilter}`;
@@ -164,6 +185,88 @@ export class Envs {
       console.warn(`Invalid EPISODE_TITLE_FILTER format, using default.`);
       return new RegExp(`^(.*?)(?:${defaultFilter})(.*?)$`);
     }
+  }
+
+/**
+   * 解析代理配置：区分代理地址和反代地址
+   * @param {string} proxyConfig 代理配置字符串
+   * @returns {Object} { isReverse: boolean, url: string }
+   */
+  static parseProxyConfig(proxyConfig) {
+    if (!proxyConfig) {
+      return { isReverse: false, url: '' };
+    }
+    
+    // 检查是否以 "RP@" 开头（反代模式）
+    if (proxyConfig.startsWith('RP@')) {
+      let reverseUrl = proxyConfig.substring(3).trim(); // 去除 "RP@" 前缀
+      // 去除末尾多余的斜杠
+      reverseUrl = reverseUrl.replace(/\/+$/, '');
+      return { isReverse: true, url: reverseUrl };
+    }
+    
+    // 代理模式
+    return { isReverse: false, url: proxyConfig };
+  }
+
+  /**
+   * 解析代理 URL，设置内部状态（this.isReverseProxy, this.reverseProxyUrl）
+   * @param {Object} env 环境对象
+   * @returns {string} 正向代理 URL（反代模式下返回空字符串）
+   */
+  static resolveProxyUrl(env) {
+    // 必须使用 false 确保获取到原始值
+    const proxyConfig = this.get('PROXY_URL', '', 'string', false); 
+    
+    // 解析配置：判断是代理还是反代
+    const parsed = this.parseProxyConfig(proxyConfig);
+    this.isReverseProxy = parsed.isReverse;
+    
+    if (this.isReverseProxy) {
+      this.reverseProxyUrl = parsed.url;
+      // 记录到 accessedEnvVars，为兼容旧的输出格式，这里先记录被加密的 reverseProxyUrl
+      this.accessedEnvVars.set('proxyUrl', '');
+      this.accessedEnvVars.set('reverseProxyUrl', this.encryptStr(this.reverseProxyUrl)); 
+      return ''; // 反代模式下不使用代理，返回空字符串作为 proxyUrl 的值
+    } else {
+      // 记录到 accessedEnvVars，这里先记录明文的 proxyUrl
+      this.accessedEnvVars.set('proxyUrl', parsed.url);
+      this.accessedEnvVars.set('reverseProxyUrl', '');
+      return parsed.url; // 代理模式，返回代理 URL 作为 proxyUrl 的值
+    }
+  }
+
+  /**
+   * 获取统一的代理/反代 URL 输出值，并记录到 accessedEnvVars
+   * 【重要】此函数会覆盖 accessedEnvVars 中 proxyUrl/reverseProxyUrl 的记录，实现统一显示。
+   * @returns {string} 根据模式加密或明文的 URL
+   */
+  static getUnifiedProxyUrlForOutput() {
+    // 重新获取原始配置（未解析、未加密）用于最终输出判断
+    const proxyConfig = this.get('PROXY_URL', '', 'string', false);
+    
+    // 重新解析配置，获取纯净的 URL
+    const parsed = this.parseProxyConfig(proxyConfig);
+    const finalUrl = parsed.url;
+    
+    let outputValue;
+    // 使用 this.isReverseProxy 判断模式，该值已在 resolveProxyUrl 中设置
+    if (this.isReverseProxy) {
+      // 反代模式：加密显示
+      outputValue = this.encryptStr(finalUrl);
+    } else {
+      // 代理模式：明文显示
+      outputValue = finalUrl;
+    }
+    
+    // 记录到 accessedEnvVars，使用 PROXY_URL 键，这是最终用户看到的值
+    this.accessedEnvVars.set('PROXY_URL', outputValue);
+    
+    // 不希望被打印的兼容性键，这些键值仍然会保留在 Envs.load 返回的对象中供内部函数使用，但不会被 getAccessedEnvVars 打印
+    this.accessedEnvVars.delete('proxyUrl');
+    this.accessedEnvVars.delete('reverseProxyUrl');
+    
+    return outputValue;
   }
 
   /**
@@ -196,7 +299,11 @@ export class Envs {
       episodeTitleFilter: this.resolveEpisodeTitleFilter(env), // 剧集标题正则过滤
       blockedWords: this.get('BLOCKED_WORDS', '', 'string'), // 屏蔽词列表
       groupMinute: Math.min(this.get('GROUP_MINUTE', 1, 'number'), 30), // 分钟内合并去重（默认 1，最大值30，0表示不去重）
-      proxyUrl: this.get('PROXY_URL', '', 'string'), // 代理地址
+      proxyUrl: this.resolveProxyUrl(env), // 代理/反代地址
+      PROXY_URL: this.getUnifiedProxyUrlForOutput(), // 代理/反代地址
+      reverseProxyUrl: this.isReverseProxy ? this.reverseProxyUrl : '', // 代理/反代地址
+      isReverseProxy: this.isReverseProxy, // 是否为反向代理模式
+      bahamutKeepTraditional: this.bahamutKeepTraditional, // 巴哈姆特弹幕是否保持繁体
       tmdbApiKey: this.get('TMDB_API_KEY', '', 'string', true), // TMDB API KEY
       redisUrl: this.get('UPSTASH_REDIS_REST_URL', '', 'string', true), // upstash redis url
       redisToken: this.get('UPSTASH_REDIS_REST_TOKEN', '', 'string', true), // upstash redis url
