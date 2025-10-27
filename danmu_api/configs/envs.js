@@ -185,9 +185,9 @@ export class Envs {
    */
   static load(env = {}, deployPlatform = 'node') {
     // 获取原始 PROXY_URL
-    const proxyUrlRaw = this。get('PROXY_URL'， ''， 'string');
+    const proxyUrlRaw = this.get('PROXY_URL', '', 'string');
     // 手动将加密后的值存入日志
-    this。accessedEnvVars。set('PROXY_URL'， this。encryptStr(proxyUrlRaw));
+    this.accessedEnvVars.set('PROXY_URL', this.encryptStr(proxyUrlRaw));
     
     return {
       vodAllowedPlatforms: this.VOD_ALLOWED_PLATFORMS,
@@ -197,19 +197,19 @@ export class Envs {
       vodServers: this.resolveVodServers(env), // vod站点配置，格式：名称@URL,名称@URL
       vodReturnMode: this.get('VOD_RETURN_MODE', 'fastest', 'string').toLowerCase(), // vod返回模式：all（所有站点）或 fastest（最快的站点）
       vodRequestTimeout: this.get('VOD_REQUEST_TIMEOUT', '10000', 'string'), // vod超时时间（默认10秒）
-      bilibliCookie: this.get('BILIBILI_COOKIE', '', 'string'， true), // b站cookie
-      youkuConcurrency: Math。min(this。get('YOUKU_CONCURRENCY'， 8, 'number'), 16)， // 优酷并发配置
-      sourceOrderArr: this.resolveSourceOrder(env， deployPlatform)， // 源排序
-      platformOrderArr: this.resolvePlatformOrder(env)， // 自动匹配优选平台
-      episodeTitleFilter: this。resolveEpisodeTitleFilter(env)， // 剧集标题正则过滤
-      blockedWords: this.get('BLOCKED_WORDS', ''， 'string'), // 屏蔽词列表
-      groupMinute: Math。min(this。get('GROUP_MINUTE'， 1, 'number'), 30)， // 分钟内合并去重（默认 1，最大值30，0表示不去重）
-      proxyUrlRaw: proxyUrlRaw， // 代理/反代地址 返回原始值，交由 globals.js 解析
+      bilibliCookie: this.get('BILIBILI_COOKIE', '', 'string', true), // b站cookie
+      youkuConcurrency: Math.min(this.get('YOUKU_CONCURRENCY', 8, 'number'), 16), // 优酷并发配置
+      sourceOrderArr: this.resolveSourceOrder(env, deployPlatform), // 源排序
+      platformOrderArr: this.resolvePlatformOrder(env), // 自动匹配优选平台
+      episodeTitleFilter: this.resolveEpisodeTitleFilter(env), // 剧集标题正则过滤
+      blockedWords: this.get('BLOCKED_WORDS', '', 'string'), // 屏蔽词列表
+      groupMinute: Math.min(this.get('GROUP_MINUTE', 1, 'number'), 30), // 分钟内合并去重（默认 1，最大值30，0表示不去重）
+      proxyUrlRaw: proxyUrlRaw, // 代理/反代地址 返回原始值，交由 globals.js 解析
       danmuSimplified: this.get('DANMU_SIMPLIFIED', true, 'boolean'), // 弹幕繁体转简体开关
       tmdbApiKey: this.get('TMDB_API_KEY', '', 'string', true), // TMDB API KEY
-      redisUrl: this。get('UPSTASH_REDIS_REST_URL'， ''， 'string', true), // upstash redis url
-      redisToken: this.get('UPSTASH_REDIS_REST_TOKEN'， ''， 'string', true), // upstash redis url
-      rateLimitMaxRequests: this。get('RATE_LIMIT_MAX_REQUESTS', 3, 'number'), // 限流配置：时间窗口内最大请求次数（默认 3，0表示不限流）
+      redisUrl: this.get('UPSTASH_REDIS_REST_URL', '', 'string', true), // upstash redis url
+      redisToken: this.get('UPSTASH_REDIS_REST_TOKEN', '', 'string', true), // upstash redis url
+      rateLimitMaxRequests: this.get('RATE_LIMIT_MAX_REQUESTS', 3, 'number'), // 限流配置：时间窗口内最大请求次数（默认 3，0表示不限流）
       enableEpisodeFilter: this.get('ENABLE_EPISODE_FILTER', false, 'boolean'), // 集标题过滤开关配置（默认 false，禁用过滤）
       logLevel: this.get('LOG_LEVEL', 'info', 'string'), // 日志级别配置（默认 info，可选值：error, warn, info）
       searchCacheMinutes: this.get('SEARCH_CACHE_MINUTES', 1, 'number'), // 搜索结果缓存时间配置（分钟，默认 1）
