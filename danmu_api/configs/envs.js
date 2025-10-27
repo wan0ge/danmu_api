@@ -15,7 +15,6 @@ export class Envs {
    * @param {string} key 环境变量的键
    * @param {any} defaultValue 默认值
    * @param {'string' | 'number' | 'boolean'} type 类型
-   * @param {boolean} encrypt 是否在 accessedEnvVars 中加密显示
    * @returns {any} 转换后的值
    */
   static get(key, defaultValue, type = 'string', encrypt = false) {
@@ -37,8 +36,7 @@ export class Envs {
         }
         break;
       case 'boolean':
-        // 确保 'false' 字符串被正确解析为 false
-        parsedValue = String(value).toLowerCase() === 'true' || String(value) === '1';
+        parsedValue = value === 'true' || value === '1';
         break;
       case 'string':
       default:
@@ -46,11 +44,6 @@ export class Envs {
         break;
     }
 
-    // PROXY_URL 将在 load() 中被特殊处理（加密记录），这里跳过
-    if (key === 'PROXY_URL') {
-      return parsedValue;
-    }
-    
     const finalValue = encrypt ? this.encryptStr(parsedValue) : parsedValue;
     this.accessedEnvVars.set(key, finalValue);
 
@@ -75,8 +68,7 @@ export class Envs {
    * @returns {string} 星号字符串
    */
   static encryptStr(str) {
-    // 确保对非空字符串进行加密
-    return str && str.length > 0 ? '*'.repeat(str.length) : '';
+    return '*'.repeat(str.length);
   }
 
   /**
@@ -184,11 +176,6 @@ export class Envs {
    * @returns {Object} 配置对象
    */
   static load(env = {}, deployPlatform = 'node') {
-    // 获取原始 PROXY_URL
-    const proxyUrlRaw = this.get('PROXY_URL', '', 'string');
-    // 手动将加密后的值存入日志
-    this.accessedEnvVars.set('PROXY_URL', this.encryptStr(proxyUrlRaw));
-    
     return {
       vodAllowedPlatforms: this.VOD_ALLOWED_PLATFORMS,
       allowedPlatforms: this.ALLOWED_PLATFORMS,
@@ -204,7 +191,7 @@ export class Envs {
       episodeTitleFilter: this.resolveEpisodeTitleFilter(env), // 剧集标题正则过滤
       blockedWords: this.get('BLOCKED_WORDS', '', 'string'), // 屏蔽词列表
       groupMinute: Math.min(this.get('GROUP_MINUTE', 1, 'number'), 30), // 分钟内合并去重（默认 1，最大值30，0表示不去重）
-      proxyUrlRaw: proxyUrlRaw, // 代理/反代地址 返回原始值，交由 globals.js 解析
+      proxyUrl: this.get('PROXY_URL', '', 'string', true), // 代理/反代地址
       danmuSimplified: this.get('DANMU_SIMPLIFIED', true, 'boolean'), // 弹幕繁体转简体开关
       tmdbApiKey: this.get('TMDB_API_KEY', '', 'string', true), // TMDB API KEY
       redisUrl: this.get('UPSTASH_REDIS_REST_URL', '', 'string', true), // upstash redis url
