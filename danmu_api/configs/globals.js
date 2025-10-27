@@ -41,8 +41,27 @@ export const Globals = {
    * @returns {Object} 全局配置对象
    */
   init(env = {}, deployPlatform = 'node') {
+    // 1. 加载所有原始环境变量
     this.envs = Envs.load(env, deployPlatform);
+    
+    // 2. 解析 PROXY_URL 并设置全局控制变量
+    const proxyConfig = this.envs.proxyUrlRaw || '';
+    
+    if (proxyConfig.startsWith('RP@')) {
+      this.envs.isReverseProxy = true;
+      this.envs.reverseProxyUrl = proxyConfig.substring(3).trim().replace(/\/+$/, '');
+      this.envs.proxyUrl = 'http://127.0.0.1:5321';
+    } else {
+      this.envs.isReverseProxy = false;
+      this.envs.reverseProxyUrl = '';
+      this.envs.proxyUrl = proxyConfig; // 代理模式下，使用代理 agent
+    }
+    // proxyUrlRaw 不再需要，可以删除
+    delete this.envs.proxyUrlRaw;
+
+    // 3. 将 Envs 模块中记录的日志同步过来
     this.accessedEnvVars = Object.fromEntries(Envs.getAccessedEnvVars());
+    
     return this.getConfig();
   },
 
@@ -89,8 +108,8 @@ export const Globals = {
  * 全局配置代理对象
  * 自动转发所有属性访问到 Globals.getConfig()
  * 使用示例：
- *   import { globals } from './globals.js';
- *   console.log(globals.version);  // 直接访问，无需调用 getConfig()
+ * import { globals } from './globals.js';
+ * console.log(globals.version);  // 直接访问，无需调用 getConfig()
  */
 export const globals = new Proxy({}, {
   get(target, prop) {
