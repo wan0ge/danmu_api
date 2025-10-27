@@ -12,25 +12,6 @@ import { strictTitleMatch } from "../utils/common-util.js";
 // 获取巴哈姆特弹幕
 // =====================
 
-// 构建巴哈姆特 API URL（统一处理反代/代理/直连三种模式）
-function buildBahamutUrl(apiPath) {
-  if (!apiPath.startsWith("/")) {
-    apiPath = "/" + apiPath;
-  }
-  
-  // 从 globals 获取配置
-  if (globals.isReverseProxy) {
-    // 反代模式：使用用户配置的反代地址
-    return `${globals.reverseProxyUrl}${apiPath}`;
-  } else if (globals.proxyUrl) {
-    // 代理模式：通过代理服务器访问原始巴哈 API
-    const originalUrl = `https://api.gamer.com.tw${apiPath}`;
-    return `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(originalUrl)}`;
-  } else {
-    // 直连模式：直接访问原始巴哈 API
-    return `https://api.gamer.com.tw${apiPath}`;
-  }
-}
 // 具体搜索部分
 export default class BahamutSource extends BaseSource {
   async search(keyword) {
@@ -49,7 +30,11 @@ export default class BahamutSource extends BaseSource {
       // 第一次搜索：繁体词搜索
       const originalSearchPromise = (async () => {
         try {
-          const url = buildBahamutUrl(`/mobile_app/anime/v1/search.php?kw=${encodedKeyword}`);
+          const apiUrl = `/mobile_app/anime/v1/search.php?kw=${encodedKeyword}`;
+          const originalApiUrl = `https://api.gamer.com.tw${apiUrl}`;
+          const url = globals.proxyUrl
+            ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(originalApiUrl)}`
+            : originalApiUrl;
           
           const originalResp = await httpGet(url, {
             headers: {
@@ -124,7 +109,11 @@ export default class BahamutSource extends BaseSource {
 
           log("info", `[Bahamut] 使用日语原名进行搜索: ${tmdbTitle}`);
           const encodedTmdbTitle = encodeURIComponent(tmdbTitle);
-          const tmdbSearchUrl = buildBahamutUrl(`/mobile_app/anime/v1/search.php?kw=${encodedTmdbTitle}`);
+          const tmdbApiUrl = `/mobile_app/anime/v1/search.php?kw=${encodedTmdbTitle}`;
+          const tmdbOriginalUrl = `https://api.gamer.com.tw${tmdbApiUrl}`;
+          const tmdbSearchUrl = globals.proxyUrl
+            ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(tmdbOriginalUrl)}`
+            : tmdbOriginalUrl;
           
           const tmdbResp = await httpGet(tmdbSearchUrl, {
             headers: {
@@ -190,7 +179,9 @@ export default class BahamutSource extends BaseSource {
   async getEpisodes(id) {
     try {
       // 构建剧集信息 URL
-      const url = buildBahamutUrl(`/anime/v1/video.php?videoSn=${id}`);
+      const targetUrl = `https://api.gamer.com.tw/anime/v1/video.php?videoSn=${id}`;
+      const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(targetUrl)}` : targetUrl;
+      
       const resp = await httpGet(url, {
         headers: {
           "Content-Type": "application/json",
@@ -361,7 +352,9 @@ export default class BahamutSource extends BaseSource {
 
     try {
       // 构建弹幕 URL
-      const url = buildBahamutUrl(`/anime/v1/danmu.php?geo=TW%2CHK&videoSn=${id}`);
+      const targetUrl = `https://api.gamer.com.tw/anime/v1/danmu.php?geo=TW%2CHK&videoSn=${id}`;
+      const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(targetUrl)}` : targetUrl;
+      
       const resp = await httpGet(url, {
         headers: {
           "Content-Type": "application/json",
@@ -391,8 +384,8 @@ export default class BahamutSource extends BaseSource {
     return comments.map(c => ({
       cid: Number(c.sn),
       p: `${Math.round(c.time / 10).toFixed(2)},${positionToMode[c.position] || c.tp},${parseInt(c.color.slice(1), 16)},[bahamut]`,
-      // 根据全局标记决定是否繁转简
-      m: globals.bahamutKeepTraditional ? c.text : simplized(c.text),
+      // 根据 globals.danmuSimplified 控制是否繁转简
+      m: globals.danmuSimplified ? simplized(c.text) : c.text,
       t: Math.round(c.time / 10)
     }));
   }
