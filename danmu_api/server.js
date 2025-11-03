@@ -358,34 +358,39 @@ function createProxyServer() {
     const queryObject = url.parse(req.url, true).query;
 
     if (queryObject.url) {
-      // 解析反向代理配置
-      const reverseProxyConfig = process.env.REVERSE_PROXY_URL || '';
-      let bahamutRP = null;
-      let tmdbRP = null;
-      let universalRP = null;
+      // 解析 PROXY_URL 配置（统一处理代理和反向代理）
+      const proxyConfig = process.env.PROXY_URL || '';
+      let forwardProxy = null;      // 正向代理（传统代理）
+      let bahamutRP = null;         // 巴哈姆特专用反代
+      let tmdbRP = null;            // TMDB专用反代
+      let universalRP = null;       // 万能反代
 
-      if (reverseProxyConfig) {
-        // 支持多个反代配置，用逗号分隔
-        const rpConfigs = reverseProxyConfig.split(',').map(s => s.trim()).filter(s => s);
+      if (proxyConfig) {
+        // 支持多个配置，用逗号分隔
+        const proxyConfigs = proxyConfig.split(',').map(s => s.trim()).filter(s => s);
         
-        for (const config of rpConfigs) {
+        for (const config of proxyConfigs) {
           if (config.startsWith('bahamut@')) {
+            // 巴哈姆特专用反代：bahamut@http://example.com
             bahamutRP = config.substring(8).trim().replace(/\/+$/, '');
             console.log('[Proxy Server] Bahamut reverse proxy detected:', bahamutRP);
           } else if (config.startsWith('tmdb@')) {
+            // TMDB专用反代：tmdb@http://example.com
             tmdbRP = config.substring(5).trim().replace(/\/+$/, '');
             console.log('[Proxy Server] TMDB reverse proxy detected:', tmdbRP);
           } else if (config.startsWith('@')) {
+            // 万能反代：@http://example.com
             universalRP = config.substring(1).trim().replace(/\/+$/, '');
             console.log('[Proxy Server] Universal reverse proxy detected:', universalRP);
+          } else {
+            // 正向代理：http://proxy.com:port 或 socks5://proxy.com:port
+            forwardProxy = config.trim();
+            console.log('[Proxy Server] Forward proxy detected:', forwardProxy);
           }
         }
       }
       const targetUrl = queryObject.url;
       console.log('[Proxy Server] Target URL:', targetUrl);
-
-      // 从环境变量获取代理配置
-      let proxyConfig = process.env.PROXY_URL;
       
       const originalUrlObj = new URL(targetUrl);
       let options = {
@@ -450,10 +455,10 @@ function createProxyServer() {
           res.end('Proxy Error: Invalid Reverse Proxy URL');
           return;
         }
-      } else if (proxyConfig) {
-        // 代理模式：使用 HttpsProxyAgent
-        console.log('[Proxy Server] Using proxy agent:', proxyConfig);
-        options.agent = new HttpsProxyAgent(proxyConfig);
+      } else if (forwardProxy) {
+        // 正向代理模式：使用 HttpsProxyAgent
+        console.log('[Proxy Server] Using forward proxy agent:', forwardProxy);
+        options.agent = new HttpsProxyAgent(forwardProxy);
       } else {
         // 直连模式
         console.log('[Proxy Server] No proxy configured, direct connection');
