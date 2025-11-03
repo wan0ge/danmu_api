@@ -104,14 +104,19 @@ export async function getTmdbJaOriginalTitle(title, signal = null) {
     };
 
     // 第一步：TMDB搜索
-    const searchUrlZh = `https://api.tmdb.org/3/search/multi?api_key=${globals.tmdbApiKey}&query=${encodeURIComponent(title)}&language=zh-CN`;
     log("info", `[TMDB] 正在搜索: ${title}`);
 
     // 内部中断检查
     if (signal && signal.aborted) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    const respZh = await httpGet(searchUrlZh, {
+    
+    // 根据代理配置构建请求URL
+	const encodedTitle = encodeURIComponent(title);
+    const targetUrl = `https://api.tmdb.org/3/search/multi?api_key=${globals.tmdbApiKey}&query=${encodedTitle}&language=zh-CN`;
+    const searchUrl = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(targetUrl)}` : targetUrl;
+    
+    const respZh = await httpGet(searchUrl, {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -157,12 +162,16 @@ export async function getTmdbJaOriginalTitle(title, signal = null) {
 
     // 第四步：获取日语详情
     const mediaType = bestMatch.media_type || (bestMatch.name ? "tv" : "movie");
-    const detailUrl = `https://api.tmdb.org/3/${mediaType}/${bestMatch.id}?api_key=${globals.tmdbApiKey}&language=ja-JP`;
 
     // 内部中断检查
     if (signal && signal.aborted) {
       throw new DOMException('Aborted', 'AbortError');
     }
+    
+    // 根据代理配置构建请求URL
+    const targetDetailUrl = `https://api.tmdb.org/3/${mediaType}/${bestMatch.id}?api_key=${globals.tmdbApiKey}&language=ja-JP`;
+    const detailUrl = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(targetDetailUrl)}` : targetDetailUrl;
+    
     const detailResp = await httpGet(detailUrl, {
       headers: {
         "Content-Type": "application/json",
