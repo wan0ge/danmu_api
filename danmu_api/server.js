@@ -427,28 +427,30 @@ function createProxyServer() {
       // 应用反代逻辑
       if (finalReverseProxy) {
         try {
-          // 区分专用反代和万能反代的URL构建方式
+          // 解析反向代理服务器的 URL，设置主机、端口和协议
+          const reverseUrlObj = new URL(finalReverseProxy);
+          options.hostname = reverseUrlObj.hostname;
+          options.port = reverseUrlObj.port || (reverseUrlObj.protocol === 'https:' ? 443 : 80);
+          protocol = reverseUrlObj.protocol === 'https:' ? https : http;
+          
+          const baseReversePath = reverseUrlObj.pathname.replace(/\/$/, '');
+          let logMessage = '';
+
+          // 根据反代类型构建不同的目标路径
           if (finalReverseProxy === universalRP) {
             // 万能反代：追加原始完整URL
-            const reverseUrlObj = new URL(finalReverseProxy);
-            options.hostname = reverseUrlObj.hostname;
-            options.port = reverseUrlObj.port || (reverseUrlObj.protocol === 'https:' ? 443 : 80);
             // 路径格式：/反代路径/原始完整URL
-            options.path = (reverseUrlObj.pathname.replace(/\/$/, '')) + '/' + targetUrl;
-            protocol = reverseUrlObj.protocol === 'https:' ? https : http;
-            
-            console.log(`[Proxy Server] Universal RP rewriting to: ${protocol === https ? 'https' : 'http'}://${options.hostname}:${options.port}${options.path}`);
+            options.path = baseReversePath + '/' + targetUrl;
+            logMessage = `[Proxy Server] Universal RP rewriting to: ${protocol === https ? 'https' : 'http'}://${options.hostname}:${options.port}${options.path}`;
           } else {
             // 专用反代：路径合并模式
-            const reverseUrlObj = new URL(finalReverseProxy);
-            options.hostname = reverseUrlObj.hostname;
-            options.port = reverseUrlObj.port || (reverseUrlObj.protocol === 'https:' ? 443 : 80);
             // 路径合并：/反代路径 + /原始路径?query
-            options.path = (reverseUrlObj.pathname.replace(/\/$/, '')) + originalUrlObj.pathname + originalUrlObj.search;
-            protocol = reverseUrlObj.protocol === 'https:' ? https : http;
-            
-            console.log(`[Proxy Server] Specific RP rewriting to: ${protocol === https ? 'https' : 'http'}://${options.hostname}:${options.port}${options.path}`);
+            options.path = baseReversePath + originalUrlObj.pathname + originalUrlObj.search;
+            logMessage = `[Proxy Server] Specific RP rewriting to: ${protocol === https ? 'https' : 'http'}://${options.hostname}:${options.port}${options.path}`;
           }
+          
+          console.log(logMessage);
+
         } catch (e) {
           console.error('[Proxy Server] Invalid reverse proxy URL:', finalReverseProxy, e.message);
           res.statusCode = 500;
