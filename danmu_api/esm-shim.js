@@ -182,7 +182,7 @@ function preprocessESMFeatures(content, filename) {
   // 修复 1: 动态 import() - 统一处理所有模式
   // 匹配: import(...) 不管有没有 await，不管是字符串还是表达式
   modified = modified.replace(
-    /(await\s+)?import\s*\(([^)]+)\)/g,
+    /(await\s+)?import\s*\(((?:[^()]|\([^)]*\))*)\)/g,
     (match, awaitKeyword, importArg) => {
       console.log(`[esm-shim] Converting dynamic import in ${path.basename(filename)}`);
       // 如果有 await，保持 await；如果没有，也不加
@@ -193,17 +193,9 @@ function preprocessESMFeatures(content, filename) {
   // 修复 2: import.meta.url
   if (content.includes('import.meta.url')) {
     console.log(`[esm-shim] Fixing import.meta.url in ${path.basename(filename)}`);
-    // 注入兼容代码
-    const metaUrlFix = `\nconst __importMetaUrl = typeof __filename !== 'undefined' ? require('url').pathToFileURL(__filename).href : import.meta.url;\n`;
-    // 在第一个 import 后插入，如果没有 import 就插入到开头
-    const firstImport = modified.search(/^import\s/m);
-    if (firstImport !== -1) {
-      const lineEnd = modified.indexOf('\n', firstImport);
-      modified = modified.slice(0, lineEnd + 1) + metaUrlFix + modified.slice(lineEnd + 1);
-    } else {
-      modified = metaUrlFix + modified;
-    }
-    // 替换所有使用
+    // 在文件开头注入兼容代码
+    const metaUrlFix = `const __importMetaUrl = require('url').pathToFileURL(__filename).href;\n`;
+    modified = metaUrlFix + modified;
     modified = modified.replace(/import\.meta\.url/g, '__importMetaUrl');
   }
   
