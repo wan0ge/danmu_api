@@ -97,32 +97,7 @@ try {
   throw err;
 }
 
-// ------------------- _compile hook -------------------
-const origCompile = Module.prototype._compile;
-Module.prototype._compile = function (content, filename) {
-  try {
-    if (
-      typeof filename === 'string' &&
-      filename.startsWith(projectRoot) &&
-      !filename.includes('node_modules') &&
-      /\b(?:import|export)\b/.test(content)
-    ) {
-      console.log(`[esm-shim] Transforming ESM syntax in: ${path.relative(projectRoot, filename)}`);
-      const out = esbuild.transformSync(content, {
-        loader: 'js',
-        format: 'cjs',
-        target: 'es2018',
-        sourcemap: 'inline',
-      });
-      return origCompile.call(this, out.code, filename);
-    }
-  } catch (e) {
-    console.error('[esm-shim] esbuild transform failed:', filename, e.message || e);
-  }
-  return origCompile.call(this, content, filename);
-};
-
-// ------------------- _load hook for node-fetch v3 -------------------
+// =============== node-fetch v3 兼容层 ===============
 let fetchCache = null;
 let fetchPromise = null;
 
@@ -199,7 +174,43 @@ function createFetchCompat() {
   return syncFetch;
 }
 
-// 拦截 node-fetch 的 require 调用
+// =============== 处理动态导入 ===============
+// 将动态 import() 转换为 require()，并修复 import.meta.url
+function preprocessESMFeatures(content, filename) {
+  let modified = content;
+  
+  // 修复 1: 动态 import() - 统一处理所有模式
+  // 匹配: import(...) 不管有没有 await，不管是字符串还是表达式
+  modified = modified.replace(
+    /(await\s+)?import\s*\(([^)]+)\)/g,
+    (match, awaitKeyword, importArg) => {
+      console.log(`[esm-shim] Converting dynamic import in ${path.basename(filename)}`);
+      // 如果有 await，保持 await；如果没有，也不加
+      return `${awaitKeyword || ''}Promise.resolve(require(${importArg}))`;
+    }
+  );
+  
+  // 修复 2: import.meta.url
+  if (content.includes('import.meta.url')) {
+    console.log(`[esm-shim] Fixing import.meta.url in ${path.basename(filename)}`);
+    // 注入兼容代码
+    const metaUrlFix = `\nconst __importMetaUrl = typeof __filename !== 'undefined' ? require('url').pathToFileURL(__filename).href : import.meta.url;\n`;
+    // 在第一个 import 后插入，如果没有 import 就插入到开头
+    const firstImport = modified.search(/^import\s/m);
+    if (firstImport !== -1) {
+      const lineEnd = modified.indexOf('\n', firstImport);
+      modified = modified.slice(0, lineEnd + 1) + metaUrlFix + modified.slice(lineEnd + 1);
+    } else {
+      modified = metaUrlFix + modified;
+    }
+    // 替换所有使用
+    modified = modified.replace(/import\.meta\.url/g, '__importMetaUrl');
+  }
+  
+  return modified;
+}
+
+// =============== Module Hooks ===============
 const origLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (request === 'node-fetch') {
@@ -212,7 +223,38 @@ Module._load = function (request, parent, isMain) {
   return origLoad.call(this, request, parent, isMain);
 };
 
-// 导出加载函数
-global.loadNodeFetch = loadNodeFetchV3;
+const origCompile = Module.prototype._compile;
+Module.prototype._compile = function (content, filename) {
+  try {
+    if (
+      typeof filename === 'string' &&
+      filename.startsWith(projectRoot) &&
+      !filename.includes('node_modules') &&
+      /\b(?:import|export)\b/.test(content)
+    ) {
+      console.log(`[esm-shim] Transforming ESM syntax in: ${path.relative(projectRoot, filename)}`);
+      
+      // 预处理 ESM 特性
+      const preprocessed = preprocessESMFeatures(content, filename);
+      
+      // esbuild 转换
+      const out = esbuild.transformSync(preprocessed, {
+        loader: 'js',
+        format: 'cjs',
+        target: 'es2018',
+        sourcemap: 'inline',
+      });
+      
+      // 确保 exports 同步（简化版）
+      const fixedCode = out.code + `\n;(function(){if(exports!==module.exports&&typeof exports==='object'){Object.keys(exports).forEach(k=>{if(k!=='__esModule'&&!(k in module.exports))module.exports[k]=exports[k]})};if(typeof module.exports==='object'&&Object.keys(module.exports).length===0){Object.keys(exports).forEach(k=>{if(k!=='__esModule')module.exports[k]=exports[k]})}})();`;
+      
+      return origCompile.call(this, fixedCode, filename);
+    }
+  } catch (e) {
+    console.error('[esm-shim] esbuild transform failed:', filename, e.message || e);
+  }
+  return origCompile.call(this, content, filename);
+};
 
+global.loadNodeFetch = loadNodeFetchV3;
 console.log('[esm-shim] ESM compatibility shim active with hooks installed');
