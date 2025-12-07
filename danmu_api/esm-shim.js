@@ -192,11 +192,18 @@ function preprocessESMFeatures(content, filename) {
   
   // 修复 2: import.meta.url
   if (content.includes('import.meta.url')) {
-    console.log(`[esm-shim] Fixing import.meta.url in ${path.basename(filename)}`);
-    // 在文件开头注入兼容代码
-    const metaUrlFix = `const __importMetaUrl = require('url').pathToFileURL(__filename).href;\n`;
-    modified = metaUrlFix + modified;
-    modified = modified.replace(/import\.meta\.url/g, '__importMetaUrl');
+    // 检查是否已经处理过
+    if (content.includes('__importMetaUrl')) {
+      console.log(`[esm-shim] __importMetaUrl already exists in ${path.basename(filename)}, skipping injection`);
+      // 只做替换，不注入
+      modified = modified.replace(/import\.meta\.url/g, '__importMetaUrl');
+    } else {
+      console.log(`[esm-shim] Fixing import.meta.url in ${path.basename(filename)}`);
+      // 注入 + 替换
+      const metaUrlFix = `const __importMetaUrl = require('url').pathToFileURL(__filename).href;\n`;
+      modified = metaUrlFix + modified;
+      modified = modified.replace(/import\.meta\.url/g, '__importMetaUrl');
+    }
   }
   
   return modified;
