@@ -116,14 +116,38 @@ let currentToken = 'globals.currentToken';
 let currentAdminToken = ''; // admin token，用于系统管理
 let originalToken = '';
 
+// 获取当前页面的基础路径
+function getBasePath() {
+    const path = window.location.pathname;
+    const cleanPath = path.replace(/\\/+$/g, '');
+    const parts = cleanPath.split('/').filter(p => { return p; });
+    if (parts.length <= 1) {
+        return cleanPath;
+    }
+    return cleanPath.substring(0, cleanPath.lastIndexOf('/'));
+}
+
+// 从URL中提取TOKEN
+function getTokenFromUrl() {
+    const urlPath = window.location.pathname;
+    const basePath = getBasePath();
+    let tokenPath = urlPath;
+    if (basePath && urlPath.startsWith(basePath)) {
+        tokenPath = urlPath.substring(basePath.length);
+    }
+    const pathParts = tokenPath.split('/').filter(part => { return part !== ''; });
+    return pathParts.length > 0 ? pathParts[0] : '';
+}
+
 // 构建带token的API请求路径
 function buildApiUrl(path, isSystemPath = false) {
+    const basePath = getBasePath();
     // 如果是系统管理路径且有admin token，则使用admin token
     if (isSystemPath && currentAdminToken && currentAdminToken.trim() !== '' && currentAdminToken.trim() !== '*'.repeat(currentAdminToken.length)) {
-        return '/' + currentAdminToken + path;
+        return basePath + '/' + currentAdminToken + path;
     }
     // 否则使用普通token
-    return (currentToken ? '/' + currentToken : "") + path;
+    return basePath + (currentToken ? '/' + currentToken : "") + path;
 }
 
 // 从API加载真实环境变量数据
@@ -187,9 +211,8 @@ function updateApiEndpoint() {
       const adminToken = config.originalEnvVars?.ADMIN_TOKEN;
 
       // 获取URL路径并提取token
-      const urlPath = window.location.pathname;
-      const pathParts = urlPath.split('/').filter(part => part !== '');
-      const urlToken = pathParts.length > 0 ? pathParts[0] : '';
+      const urlToken = getTokenFromUrl();
+      const basePath = getBasePath();
       let apiToken = '********';
       
       // 判断是否使用默认token
@@ -204,7 +227,7 @@ function updateApiEndpoint() {
       }
       
       // 构造API端点URL
-      const apiEndpoint = protocol + '//' + host + '/' + apiToken;
+      const apiEndpoint = protocol + '//' + host + basePath + '/' + apiToken;
       const apiEndpointElement = document.getElementById('api-endpoint');
       if (apiEndpointElement) {
         apiEndpointElement.textContent = apiEndpoint;
@@ -216,7 +239,7 @@ function updateApiEndpoint() {
       // 出错时显示默认值
       const protocol = window.location.protocol;
       const host = window.location.host;
-      const apiEndpoint = protocol + '//' + host + '/********';
+      const apiEndpoint = protocol + '//' + host + basePath + '/********';
       const apiEndpointElement = document.getElementById('api-endpoint');
       if (apiEndpointElement) {
         apiEndpointElement.textContent = apiEndpoint;
@@ -254,9 +277,7 @@ function switchSection(section) {
     // 检查是否尝试访问受token保护的section（日志查看、接口调试、系统配置需要token访问）
     if (section === 'logs' || section === 'api' || section === 'env' || section === 'push') {
         // 获取URL路径并提取token
-        const urlPath = window.location.pathname;
-        const pathParts = urlPath.split('/').filter(part => part !== '');
-        const urlToken = pathParts.length > 0 ? pathParts[0] : '';
+        const urlToken = getTokenFromUrl();
         
         // 检查URL中是否有token
         if (!urlToken && originalToken !== "87654321") {
@@ -265,7 +286,8 @@ function switchSection(section) {
                 // 获取当前页面的协议、主机和端口
                 const protocol = window.location.protocol;
                 const host = window.location.host;
-                customAlert('请在URL中配置相应的TOKEN以访问此功能！\\n\\n访问方式：' + protocol + '//' + host + '/{TOKEN}');
+                const basePath = getBasePath();
+                customAlert('请在URL中配置相应的TOKEN以访问此功能！\\n\\n访问方式：' + protocol + '//' + host + basePath + '/{TOKEN}');
             }, 100);
             return;
         }
