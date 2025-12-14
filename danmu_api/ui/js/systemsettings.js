@@ -256,9 +256,7 @@ function confirmDeploymentByLogs() {
 // 检查URL中的token是否与currentAdminToken匹配
 function checkAdminToken() {
     // 获取URL路径并提取token
-    const urlPath = window.location.pathname;
-    const pathParts = urlPath.split('/').filter(part => part !== '');
-    const urlToken = pathParts.length > 0 ? pathParts[0] : currentToken; // 如果没有路径段，使用默认token
+    const urlToken = getTokenFromUrl() || currentToken;
     
     // 检查是否配置了ADMIN_TOKEN且URL中的token等于currentAdminToken
     return currentAdminToken && currentAdminToken.trim() !== '' && urlToken === currentAdminToken;
@@ -271,7 +269,8 @@ async function checkDeployPlatformConfig() {
         // 获取当前页面的协议、主机和端口
         const protocol = window.location.protocol;
         const host = window.location.host;
-        return { success: false, message: '请先配置ADMIN_TOKEN环境变量并使用正确的token访问以启用系统部署功能！\\n\\n访问方式：' + protocol + '//' + host + '/{ADMIN_TOKEN}' };
+        const basePath = getBasePath();
+        return { success: false, message: '请先配置ADMIN_TOKEN环境变量并使用正确的token访问以启用系统部署功能！\\n\\n访问方式：' + protocol + '//' + host + basePath + '/{ADMIN_TOKEN}' };
     }
     
     try {
