@@ -819,7 +819,10 @@ export default class BilibiliSource extends BaseSource {
 
   // 检查是否配置了B站专用代理
   _hasBilibiliProxy() {
-    return (globals.proxyUrl || '').includes('bilibili@') || (globals.proxyUrl || '').includes('@');
+    return (globals.proxyUrl || '').split(',').some(p => {
+        const t = p.trim();
+        return t.startsWith('bilibili@') || t.startsWith('@');
+    });
   }
 
   // APP接口专用 URL 编码
@@ -834,7 +837,7 @@ export default class BilibiliSource extends BaseSource {
   }
 
   // 港澳台代理搜索请求
-  async _searchOverseaRequest(keyword, label="Original") {
+  async _searchOverseaRequest(keyword, label="Original", signal = null) {
     const rawCookie = globals.bilibliCookie || "";
     const akMatch = rawCookie.match(/([0-9a-fA-F]{32})/);
     const proxy = (globals.proxyUrl||'').includes('bilibili@') || (globals.proxyUrl||'').includes('@');
@@ -849,7 +852,7 @@ export default class BilibiliSource extends BaseSource {
             const sign = md5(qs + BilibiliSource.APP_SEC);
             const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(`https://app.bilibili.com/x/v2/search/type?${qs}&sign=${sign}`)}` : "";
             
-            const data = await this._fetchAppSearchWithStream(url, { "User-Agent": "Mozilla/5.0 Android", "X-From-Biliroaming": "1.0.0" }, label);
+            const data = await this._fetchAppSearchWithStream(url, { "User-Agent": "Mozilla/5.0 Android", "X-From-Biliroaming": "1.0.0" }, label, signal);
             
             if (data && data.code === 0) {
                 return (data.data?.items || data.data || [])
@@ -868,6 +871,7 @@ export default class BilibiliSource extends BaseSource {
             }
             if (data && data.code !== 0) log("warn", `[Bilibili-Proxy] App 接口返回错误 Code ${data.code}: ${data.message}`);
         } catch(e) {
+            if (e.name === 'AbortError') throw e;
             log("error", `[Bilibili-Proxy] App 接口请求异常: ${e.message}`);
         }
         log("info", `[Bilibili-Proxy] App 接口请求失败，自动降级至 Web 接口...`);
@@ -880,7 +884,10 @@ export default class BilibiliSource extends BaseSource {
         const params = { keyword, search_type: 'media_bangumi', area: 'tw', page: 1, order: 'totalrank', __refresh__: true, _timestamp: Date.now() };
         const qs = Object.keys(params).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join('&');
         const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(`https://api.bilibili.com/x/web-interface/search/type?${qs}`)}` : "";
-        const res = await httpGet(url, { headers: { "User-Agent": "Mozilla/5.0", "Cookie": globals.bilibliCookie||"", "X-From-Biliroaming": "1.0.0" } });
+        const res = await httpGet(url, { 
+            headers: { "User-Agent": "Mozilla/5.0", "Cookie": globals.bilibliCookie||"", "X-From-Biliroaming": "1.0.0" },
+            signal: signal 
+        });
         const data = typeof res.data==="string"?JSON.parse(res.data):res.data;
         
         if (data.code !== 0) {
@@ -895,6 +902,7 @@ export default class BilibiliSource extends BaseSource {
             })).filter(i => i.mediaId);
         }
     } catch(e) {
+        if (e.name === 'AbortError') throw e;
         log("error", `[Bilibili-Proxy] Web 接口请求异常: ${e.message}（如果是-500/-502说明只是风控）`);
     }
     return [];
@@ -902,21 +910,23 @@ export default class BilibiliSource extends BaseSource {
 
   // 综合港澳台搜索入口
   async _searchOversea(keyword) {
-      const c = new AbortController();
-      const t1 = this._searchOverseaRequest(keyword, "Original").then(r => { if(r.length) c.abort(); return r; }).catch(()=>[]);
-      const t2 = globals.tmdbApiKey ? (new Promise(r=>setTimeout(r,100)).then(()=>c.signal.aborted?[]:getTmdbJaOriginalTitle(keyword, c.signal)).then(t => (t&&t!==keyword&&!c.signal.aborted)?this._searchOverseaRequest(t,"TMDB"):[]).catch(()=>[])) : Promise.resolve([]);
+      const tmdbAbortController = new AbortController();
+      const t1 = this._searchOverseaRequest(keyword, "Original").then(r => { if(r.length) tmdbAbortController.abort(); return r; }).catch(()=>[]);
+      const t2 = globals.tmdbApiKey ? (new Promise(r=>setTimeout(r,100)).then(()=>getTmdbJaOriginalTitle(keyword, tmdbAbortController.signal, "Bilibili")).then(t => (t&&t!==keyword)?this._searchOverseaRequest(t,"TMDB",tmdbAbortController.signal):[]).catch(()=>[])) : Promise.resolve([]);
       return (await Promise.all([t1, t2])).flat();
   }
 
   // APP搜索流式嗅探，针对 B 站港澳台无结果时返回的大体积推荐数据
-  async _fetchAppSearchWithStream(url, headers, label) {
+  async _fetchAppSearchWithStream(url, headers, label, signal) {
     if (typeof httpGetWithStreamCheck !== 'function') return null;
+    
     let trusted = false;
     let isNoResult = false; // 标记是否为"无结果"中断
 
     const result = await httpGetWithStreamCheck(url, { 
         headers: headers,
-        sniffLimit: 8192 
+        sniffLimit: 8192,
+        signal: signal 
     }, (chunk) => {
         if (trusted) return true;
         if (chunk.includes('"goto":"recommend_tips"') || chunk.includes('暂无搜索结果')) {
