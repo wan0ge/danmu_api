@@ -548,9 +548,20 @@ function createProxyServer() {
       });
 
       proxyReq.on('error', (err) => {
+        // 过滤掉因客户端主动断开导致的 ECONNRESET / socket hang up 错误
+        if (req.destroyed || req.aborted || err.code === 'ECONNRESET' || err.message === 'socket hang up') {
+            // 只有当响应还没结束时，才打印一条 Info 级别的日志，证明熔断成功
+            if (!res.writableEnded) {
+                console.log('[Proxy Server] Upstream connection closed (expected behavior due to client interrupt).');
+            }
+            return;
+        }
+
         console.error('Proxy request error:', err);
-        res.statusCode = 500;
-        res.end('Proxy Error: ' + err.message);
+        if (!res.headersSent) {
+            res.statusCode = 500;
+            res.end('Proxy Error: ' + err.message);
+        }
       });
 
       proxyReq.end();
