@@ -720,7 +720,7 @@ export default class BilibiliSource extends BaseSource {
                 contents.push(...res.value);
             } else {
                 // 请求失败视为视频结束（熔断机制）
-                log("info", "[Bilibili] 分段请求结束或出错，停止后续请求");
+                log("info", "[Bilibili] 捕获到分段请求出错，说明请求完毕，停止后续请求");
                 stop = true;
             }
         }
@@ -840,47 +840,62 @@ export default class BilibiliSource extends BaseSource {
     const proxy = (globals.proxyUrl||'').includes('bilibili@') || (globals.proxyUrl||'').includes('@');
     if (!proxy) return [];
 
+    // 1. 尝试 App 接口
     if (akMatch) {
         log("info", `[Bilibili-Proxy][${label}] 检测到 Access Key，启用 APP 端接口模式...`);
-        // App 接口模式 (Access Key)
-        const params = { keyword, type: 7, area: 'tw', mobi_app: 'android', platform: 'android', build: '8140200', ts: Math.floor(Date.now()/1000), appkey: BilibiliSource.APP_KEY, access_key: akMatch[1], disable_rcmd: 1 };
-        const qs = Object.keys(params).sort().map(k => `${k}=${this._javaUrlEncode(String(params[k]))}`).join('&');
-        const sign = md5(qs + BilibiliSource.APP_SEC);
-        const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(`https://app.bilibili.com/x/v2/search/type?${qs}&sign=${sign}`)}` : "";
-        
-        const data = await this._fetchAppSearchWithStream(url, { "User-Agent": "Mozilla/5.0 Android", "X-From-Biliroaming": "1.0.0" }, label);
-        if (data && data.code === 0) {
-            return (data.data?.items || data.data || [])
-                .filter(i => i.goto !== 'recommend_tips' && i.area !== '漫游' && i.badge !== '公告')
-                .map(i => ({
-                    provider: "bilibili",
-                    mediaId: i.season_id ? `ss${i.season_id}` : (i.uri.match(/season\/(\d+)/)?.[1] ? `ss${i.uri.match(/season\/(\d+)/)[1]}` : ""),
-                    title: (i.title||"").replace(/<[^>]+>/g,'').trim(),
-                    type: "动漫",
-                    year: i.ptime ? new Date(i.ptime*1000).getFullYear() : null,
-                    imageUrl: i.cover||i.pic||"",
-                    episodeCount: 0,
-                    _eps: i.episodes || i.episodes_new,
-                    isOversea: true
-                })).filter(i => i.mediaId);
+        try {
+            const params = { keyword, type: 7, area: 'tw', mobi_app: 'android', platform: 'android', build: '8140200', ts: Math.floor(Date.now()/1000), appkey: BilibiliSource.APP_KEY, access_key: akMatch[1], disable_rcmd: 1 };
+            const qs = Object.keys(params).sort().map(k => `${k}=${this._javaUrlEncode(String(params[k]))}`).join('&');
+            const sign = md5(qs + BilibiliSource.APP_SEC);
+            const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(`https://app.bilibili.com/x/v2/search/type?${qs}&sign=${sign}`)}` : "";
+            
+            const data = await this._fetchAppSearchWithStream(url, { "User-Agent": "Mozilla/5.0 Android", "X-From-Biliroaming": "1.0.0" }, label);
+            
+            if (data && data.code === 0) {
+                return (data.data?.items || data.data || [])
+                    .filter(i => i.goto !== 'recommend_tips' && i.area !== '漫游' && i.badge !== '公告')
+                    .map(i => ({
+                        provider: "bilibili",
+                        mediaId: i.season_id ? `ss${i.season_id}` : (i.uri.match(/season\/(\d+)/)?.[1] ? `ss${i.uri.match(/season\/(\d+)/)[1]}` : ""),
+                        title: (i.title||"").replace(/<[^>]+>/g,'').trim(),
+                        type: "动漫",
+                        year: i.ptime ? new Date(i.ptime*1000).getFullYear() : null,
+                        imageUrl: i.cover||i.pic||"",
+                        episodeCount: 0,
+                        _eps: i.episodes || i.episodes_new,
+                        isOversea: true
+                    })).filter(i => i.mediaId);
+            }
+            if (data && data.code !== 0) log("warn", `[Bilibili-Proxy] App 接口返回错误 Code ${data.code}: ${data.message}`);
+        } catch(e) {
+            log("error", `[Bilibili-Proxy] App 接口请求异常: ${e.message}`);
         }
+        log("info", `[Bilibili-Proxy] App 接口请求失败，自动降级至 Web 接口...`);
     } else {
         log("info", `[Bilibili-Proxy][${label}] 未检测到 Access Key，启用 Web 端接口模式...`);
-        // Web 接口模式
-        try {
-            const params = { keyword, search_type: 'media_bangumi', area: 'tw', page: 1, order: 'totalrank', __refresh__: true, _timestamp: Date.now() };
-            const qs = Object.keys(params).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join('&');
-            const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(`https://api.bilibili.com/x/web-interface/search/type?${qs}`)}` : "";
-            const res = await httpGet(url, { headers: { "User-Agent": "Mozilla/5.0", "Cookie": globals.bilibliCookie||"", "X-From-Biliroaming": "1.0.0" } });
-            const data = typeof res.data==="string"?JSON.parse(res.data):res.data;
-            if(data.code===0 && data.data?.result) {
-                return data.data.result.filter(i => i.url?.includes("bilibili.com") && (!i.areas?.includes("漫游"))).map(i => ({
-                    provider: "bilibili", mediaId: i.season_id?`ss${i.season_id}`:"", title: (i.title||"").replace(/<[^>]+>/g,'').trim(),
-                    type: this._extractMediaType(i.season_type_name), year: i.pubtime?new Date(i.pubtime*1000).getFullYear():null, imageUrl: i.cover||null,
-                    episodeCount: i.ep_size||0, _eps: i.eps, isOversea: true
-                })).filter(i => i.mediaId);
-            }
-        } catch(e) {}
+    }
+
+    // 2. Web 接口兜底
+    try {
+        const params = { keyword, search_type: 'media_bangumi', area: 'tw', page: 1, order: 'totalrank', __refresh__: true, _timestamp: Date.now() };
+        const qs = Object.keys(params).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join('&');
+        const url = globals.proxyUrl ? `http://127.0.0.1:5321/proxy?url=${encodeURIComponent(`https://api.bilibili.com/x/web-interface/search/type?${qs}`)}` : "";
+        const res = await httpGet(url, { headers: { "User-Agent": "Mozilla/5.0", "Cookie": globals.bilibliCookie||"", "X-From-Biliroaming": "1.0.0" } });
+        const data = typeof res.data==="string"?JSON.parse(res.data):res.data;
+        
+        if (data.code !== 0) {
+            log("warn", `[Bilibili-Proxy] Web 接口返回错误 Code ${data.code}: ${data.message}`);
+            return [];
+        }
+        if(data.data?.result) {
+            return data.data.result.filter(i => i.url?.includes("bilibili.com") && (!i.areas?.includes("漫游"))).map(i => ({
+                provider: "bilibili", mediaId: i.season_id?`ss${i.season_id}`:"", title: (i.title||"").replace(/<[^>]+>/g,'').trim(),
+                type: this._extractMediaType(i.season_type_name), year: i.pubtime?new Date(i.pubtime*1000).getFullYear():null, imageUrl: i.cover||null,
+                episodeCount: i.ep_size||0, _eps: i.eps, isOversea: true
+            })).filter(i => i.mediaId);
+        }
+    } catch(e) {
+        log("error", `[Bilibili-Proxy] Web 接口请求异常: ${e.message}（如果是-500/-502说明只是风控）`);
     }
     return [];
   }
