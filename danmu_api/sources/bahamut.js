@@ -80,29 +80,12 @@ export default class BahamutSource extends BaseSource {
           // 延迟100毫秒，避免与原始搜索争抢同一连接池
           await new Promise(resolve => setTimeout(resolve, 100));
           
-          // 内部中断检查 (点1)
-          if (tmdbAbortController.signal.aborted) {
-            throw new DOMException('Aborted', 'AbortError');
-          }
-
           // 如果类型不符合会返回null,自然跳过后续搜索
-          const tmdbTitle = await getTmdbJaOriginalTitle(tmdbSearchKeyword, tmdbAbortController.signal);
-
-          // 检查 getTmdbJaOriginalTitle 执行期间是否被中断
-          if (tmdbAbortController.signal.aborted) {
-            log("info", "[Bahamut] 原始搜索成功，取消TMDB日语原名获取");
-            throw new DOMException('Aborted', 'AbortError');
-          }
+          const tmdbTitle = await getTmdbJaOriginalTitle(tmdbSearchKeyword, tmdbAbortController.signal, "Bahamut");
 
           if (!tmdbTitle) {
             log("info", "[Bahamut] TMDB转换未返回结果，取消日语原名搜索");
             return { success: false, source: 'tmdb' };
-          }
-
-          // 内部中断检查 (点2)
-          if (tmdbAbortController.signal.aborted) {
-            log("info", "[Bahamut] 原始搜索成功，取消日语原名搜索");
-            throw new DOMException('Aborted', 'AbortError');
           }
 
           log("info", `[Bahamut] 使用日语原名进行搜索: ${tmdbTitle}`);
@@ -115,6 +98,7 @@ export default class BahamutSource extends BaseSource {
               "Content-Type": "application/json",
               "User-Agent": "Anime/2.29.2 (7N5749MM3F.tw.com.gamer.anime; build:972; iOS 26.0.0) Alamofire/5.6.4",
             },
+            signal: tmdbAbortController.signal
           });
 
           if (tmdbResp && tmdbResp.data && tmdbResp.data.anime && tmdbResp.data.anime.length > 0) {
