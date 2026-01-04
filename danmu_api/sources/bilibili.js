@@ -912,16 +912,27 @@ export default class BilibiliSource extends BaseSource {
   async _fetchAppSearchWithStream(url, headers, label) {
     if (typeof httpGetWithStreamCheck !== 'function') return null;
     let trusted = false;
-    return httpGetWithStreamCheck(url, { 
+    let isNoResult = false; // 标记是否为"无结果"中断
+
+    const result = await httpGetWithStreamCheck(url, { 
         headers: headers,
         sniffLimit: 8192 
     }, (chunk) => {
         if (trusted) return true;
         if (chunk.includes('"goto":"recommend_tips"') || chunk.includes('暂无搜索结果')) {
-            log("info", `[Bilibili-Proxy][${label}] 嗅探到无效数据，中断`); return false;
+            log("info", `[Bilibili-Proxy][${label}] 嗅探到无效数据，中断`); 
+            isNoResult = true; // 标记为无结果
+            return false;
         }
         if (chunk.includes('"season_id"') || chunk.includes('"episodes"')) trusted = true;
         return true;
     });
+
+    // 如果是无结果导致的中断，构造一个伪造的空成功响应
+    if (isNoResult) {
+        return { code: 0, data: { items: [] } };
+    }
+
+    return result;
   }
 }
