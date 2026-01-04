@@ -348,10 +348,10 @@ export default class BilibiliSource extends BaseSource {
     }
 
     const episodes = rawEpisodes.map((ep, index) => ({
-    vid: `${ep.aid},${ep.cid}`,
-    id: ep.id,
-    title: (ep.show_title || ep.long_title || ep.title || `第${index + 1}集`).trim(),
-    link: `https://www.bilibili.com/bangumi/play/ep${ep.id}`
+        vid: `${ep.aid},${ep.cid}`,
+        id: ep.id,
+        title: (ep.show_title || ep.long_title || ep.title || `第${index + 1}集`).trim(),
+        link: `https://www.bilibili.com/bangumi/play/ep${ep.id}`
     }));
 
     log("info", `[Bilibili] 获取到 ${episodes.length} 个番剧分集`);
