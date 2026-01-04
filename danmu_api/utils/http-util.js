@@ -5,6 +5,23 @@ import { log } from './log-util.js'
 // 请求工具方法
 // =====================
 
+/**
+ * 将外部中断信号链接到内部控制器
+ * @param {AbortSignal} externalSignal 外部传入的信号
+ * @param {AbortController} internalController 内部使用的控制器
+ */
+function linkSignal(externalSignal, internalController) {
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      internalController.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => {
+        internalController.abort();
+      }, { once: true });
+    }
+  }
+}
+
 export async function httpGet(url, options = {}) {
   // 从 options 中获取重试次数，默认为 0
   const maxRetries = parseInt(options.retries || '0', 10) || 0;
@@ -24,6 +41,9 @@ export async function httpGet(url, options = {}) {
     const timeout = parseInt(globals.vodRequestTimeout || '5000', 10) || 5000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    // 链接外部中断信号
+    linkSignal(options.signal, controller);
 
     try {
       const response = await fetch(url, {
@@ -126,6 +146,11 @@ export async function httpGet(url, options = {}) {
       clearTimeout(timeoutId);
       lastError = error;
 
+      // 如果是外部信号导致的中断，停止重试并直接抛出
+      if (options.signal?.aborted) {
+        throw error;
+      }
+
       // 检查是否是超时错误
       if (error.name === 'AbortError') {
         log("error", `[请求模拟] 请求超时:`, error.message);
@@ -179,6 +204,9 @@ export async function httpPost(url, body, options = {}) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+    // 链接外部中断信号
+    linkSignal(options.signal, controller);
+
     // 处理请求头、body 和其他参数
     const { headers = {}, params, allow_redirects = true } = options;
     const fetchOptions = {
@@ -229,6 +257,11 @@ export async function httpPost(url, body, options = {}) {
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error;
+
+      // 如果是外部信号导致的中断，停止重试并直接抛出
+      if (options.signal?.aborted) {
+        throw error;
+      }
 
       // 检查是否是超时错误
       if (error.name === 'AbortError') {
@@ -287,6 +320,11 @@ async function httpRequestMethod(method, url, body, options = {}) {
   // 只有在 body 存在时才设置（DELETE 通常无 body）
   if (body !== undefined && body !== null) {
     fetchOptions.body = body;
+  }
+
+  // 如果传递了 signal，直接透传给 fetch
+  if (options.signal) {
+    fetchOptions.signal = options.signal;
   }
 
   try {
@@ -528,6 +566,9 @@ export async function httpGetWithStreamCheck(url, options = {}, checkCallback) {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  // 链接外部中断信号
+  linkSignal(options.signal, controller);
 
   try {
     log("info", `[流式请求] HTTP GET: ${url}`);
