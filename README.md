@@ -443,7 +443,7 @@ API 支持返回 Bilibili 标准 XML 格式的弹幕数据，通过查询参数 
 | youku    | youku |
 | iqiyi    | qiyi |
 | imgo     | imgo |
-| bilibili | bilibili1，bilibili-overseas |
+| bilibili | bilibili1 |
 | renren   | renren |
 | hanjutv  | hanjutv |
 | bahamut  | bahamut |
