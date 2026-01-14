@@ -438,9 +438,15 @@ export default class AnimekoSource extends BaseSource {
 
   /**
    * 获取具体分片的弹幕数据
+   * 标准实现：返回原始数据，格式化交由父类统一处理
    */
-  async getSegmentComments(segment) {
-    return this.getEpisodeDanmu(segment.url);
+  async getEpisodeSegmentDanmu(segment) {
+    // 增加 trim 防止 URL 意外空格
+    const url = (segment.url || '').trim();
+    if (!url) return [];
+    
+    // 返回原始数据
+    return this.getEpisodeDanmu(url);
   }
 
   /**
