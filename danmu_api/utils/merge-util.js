@@ -205,6 +205,68 @@ function calculateSimilarity(str1, str2) {
 }
 
 /**
+ * 检测主副标题结构冲突
+ * 采用轻量级清洗策略，保留原始分隔符以精准识别 "主标题 + 副标题" 结构
+ * @param {string} titleA 标题A
+ * @param {string} titleB 标题B
+ * @returns {boolean} true 表示存在结构冲突(禁止合并)
+ */
+function checkTitleSubtitleConflict(titleA, titleB) {
+    if (!titleA || !titleB) return false;
+
+    // 轻量清洗：仅移除年份、标签和来源后缀，保留标题内部的空格和标点
+    const lightClean = (str) => {
+        if (!str) return '';
+        let s = str;
+        // 尝试繁简转换
+        try { s = simplized(s); } catch (e) {}
+        
+		// 移除常见的非标题性元数据后缀 (续篇、TV版、无修等)
+		s = s.replace(/(\(|（)(续篇|TV版|无修|未删减|完整版)(\)|）)/gi, '');
+		
+        // 移除年份标记及其后续内容
+        s = s.replace(/(\(|（)\d{4}(\)|）).*$/i, '');
+        // 移除【xxx】格式标签
+        s = s.replace(/【.*?】/g, '');
+        // 移除来源后缀
+        s = s.replace(/\s*from\s+.*$/i, '');
+
+        return s.trim().toLowerCase();
+    };
+
+    const t1 = lightClean(titleA);
+    const t2 = lightClean(titleB);
+
+    if (t1 === t2) return false;
+
+    // 确定长短标题
+    const [short, long] = t1.length < t2.length ? [t1, t2] : [t2, t1];
+
+    // 检查长标题是否以短标题起始
+    if (long.startsWith(short)) {
+        if (long.length === short.length) return false;
+
+        // 获取衔接处的字符
+        const nextChar = long[short.length];
+
+        // 校验分隔符：匹配任意空白符(\s)、冒号、连字符或括号起始
+        const separatorRegex = /^[\s:：\-–—(（\[【]/;
+
+        if (separatorRegex.test(nextChar)) {
+             // 移除开头的分隔符，提取副标题内容
+             const subtitle = long.slice(short.length).replace(separatorRegex, '').trim();
+             
+             // 如果副标题有效长度超过2个字符，视为不同作品
+             if (subtitle.length > 2) {
+                 return true;
+             }
+        }
+    }
+
+    return false;
+}
+
+/**
  * 提取标题和类型中的季度/类型标识
  * 支持提取：第N季, Season N, Part N, OVA, OAD, 剧场版, 续篇, 以及末尾数字
  * 同时从 typeDesc (类型描述) 中提取特征，解决标题未写明但类型明确的情况
@@ -275,6 +337,39 @@ function getStrictMediaType(title, typeDesc) {
 }
 
 /**
+ * 检查是否满足“剧场版”结构豁免条件
+ * 核心逻辑：若涉及剧场版，且双方标题均为“主标题+空格+副标题”结构，视为同一单品
+ * @param {string} titleA 标题A
+ * @param {string} titleB 标题B
+ * @param {string} typeDescA 类型描述A
+ * @param {string} typeDescB 类型描述B
+ * @returns {boolean} true 表示满足豁免条件
+ */
+function checkTheatricalExemption(titleA, titleB, typeDescA, typeDescB) {
+    // 1. 范围限制：必须包含“剧场版”
+    const isTheatrical = (typeDescA || '').includes('剧场版') || (typeDescB || '').includes('剧场版');
+    if (!isTheatrical) return false;
+
+    // 2. 轻量级清洗 (保留中间空格)
+    const lightClean = (str) => {
+        if (!str) return '';
+        let s = str;
+        try { s = simplized(s); } catch (e) {}
+        s = s.replace(/(\(|（)\d{4}(\)|）).*$/i, ''); // 移除年份
+        s = s.replace(/【.*?】/g, ''); // 移除标签
+        s = s.replace(/\s*from\s+.*$/i, ''); // 移除来源
+        return s.trim();
+    };
+
+    const t1 = lightClean(titleA);
+    const t2 = lightClean(titleB);
+
+    // 3. 结构校验：主标题 + 分隔符(空格/NBSP/全角) + 副标题
+    const spaceStructureRegex = /.+[\s\u00A0\u3000].+/;
+    return spaceStructureRegex.test(t1) && spaceStructureRegex.test(t2);
+}
+
+/**
  * 校验媒体类型是否冲突
  * 逻辑策略：
  * 1. 如果类型明确互斥（一个电影，一个电视剧），且
@@ -295,6 +390,11 @@ function checkMediaTypeMismatch(titleA, titleB, typeDescA, typeDescB, countA, co
     // 1. 如果没有检测到明确的互斥类型，放行
     if (!mediaA || !mediaB || mediaA === mediaB) return false;
 
+    // 2. 豁免逻辑：剧场版结构匹配
+    if (checkTheatricalExemption(titleA, titleB, typeDescA, typeDescB)) {
+        return false;
+    }
+
     // 2. 检查集数数据的有效性
     const hasValidCounts = countA > 0 && countB > 0;
 
@@ -304,7 +404,7 @@ function checkMediaTypeMismatch(titleA, titleB, typeDescA, typeDescB, countA, co
         const diff = Math.abs(countA - countB);
         if (diff > 5) {
             return true; // 冲突
-        }
+    }
         return false;
     }
 
@@ -340,7 +440,11 @@ function checkSeasonMismatch(titleA, titleB, typeA, typeB) {
 
   // 2. 一方有标记，一方无标记 -> 冲突
   if (markersA.size !== markersB.size) {
-      return true;
+      // 豁免逻辑：剧场版结构匹配 (解决 "无标记 vs MOVIE" 问题)
+      if (checkTheatricalExemption(titleA, titleB, typeA, typeB)) {
+          return false;
+      }
+      return true; // 确实冲突
   }
 
   return false;
@@ -395,6 +499,30 @@ function checkDateMatch(dateA, dateB) {
 }
 
 /**
+ * 验证合并覆盖率是否合规
+ * 防止出现大量落单的情况（如剧场版强行匹配TV版）
+ * @param {number} mergedCount 成功匹配的集数
+ * @param {number} totalA 主源总集数
+ * @param {number} totalB 副源总集数
+ * @returns {boolean} 是否合规
+ */
+function isMergeRatioValid(mergedCount, totalA, totalB) {
+    const maxTotal = Math.max(totalA, totalB);
+    if (maxTotal === 0) return false;
+
+    // 计算覆盖率
+    const ratio = mergedCount / maxTotal;
+
+    // 如果总集数较多（>5），且匹配率极低（<18%），视为异常关联
+    // 例如：12集动画只匹配了2集 (16.7% < 18%)，应驳回
+    if (maxTotal > 5 && ratio < 0.18) {
+        return false;
+    }
+    
+    return true;
+}
+
+/**
  * 在副源列表中寻找最佳匹配的动画对象
  * 采用“双重对比策略”：同时计算“完整标题相似度”和“去括号主标题相似度”，取最大值。
  * 并结合类型信息进行更精准的冲突检测（如剧场版vsTV版）。
@@ -430,27 +558,32 @@ export function findSecondaryMatch(primaryAnime, secondaryList) {
 
     const secCount = secAnime.episodeCount || (secAnime.links ? secAnime.links.length : 0);
     
-    // 1. 严格冲突检测 (使用 rawTitle)
+    // 严格冲突检测 (使用 rawTitle)
     // 只要标题一个是电影一个是电视剧，且没有集数证明它们一样，就直接跳过
     if (checkMediaTypeMismatch(rawPrimaryTitle, rawSecTitle, primaryAnime.typeDescription, secAnime.typeDescription, primaryCount, secCount)) {
         continue;
     }
 
-    // 2. 豁免检测 (使用 clean 后的 simTitle)
+    // 主副标题结构冲突检测
+    if (checkTitleSubtitleConflict(rawPrimaryTitle, rawSecTitle)) {
+        continue;
+    }
+
+    // 豁免检测 (使用 clean 后的 simTitle)
     const isSeasonExactMatch = hasSameSeasonMarker(primaryTitleForSim, secTitleForSim, primaryAnime.typeDescription, secAnime.typeDescription);
 
-    // 3. 日期校验
+    // 日期校验
     const dateScore = checkDateMatch(primaryDate, secDate);
     if (!isSeasonExactMatch && dateScore === -1) {
         continue;
     }
 
-    // 4. 季度冲突检测 (使用 clean 后的 simTitle)
+    // 季度冲突检测 (使用 clean 后的 simTitle)
     if (checkSeasonMismatch(primaryTitleForSim, secTitleForSim, primaryAnime.typeDescription, secAnime.typeDescription)) {
         continue; 
     }
 
-    // 5. 核心相似度计算 (使用 clean 后的 simTitle)
+    // 核心相似度计算 (使用 clean 后的 simTitle)
     let scoreFull = calculateSimilarity(primaryTitleForSim, secTitleForSim);
     
     // 去除括号再次对比
@@ -907,21 +1040,26 @@ export async function applyMergeLogic(curAnimes) {
                 }
             }
 
+            // 最终校验：合并覆盖率是否达标
             if (mergedCount > 0) {
-              log("info", `[Merge] 关联成功: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (本次合并 ${mergedCount} 集)`);
-              if (mappingEntries.length > 0) {
-                  mappingEntries.sort((a, b) => a.idx - b.idx);
-                  log("info", `[Merge] [${secSource}] 映射详情:\n${mappingEntries.map(e => e.text).join('\n')}`);
-              }
-              
-              // 标记该副源动漫已被消耗，不能再作为后续轮次的主源（本组内）
-              groupConsumedIds.add(match.animeId);
-              // 同时也标记为全局消耗，用于最终清理
-              globalConsumedIds.add(match.animeId);
+              if (isMergeRatioValid(mergedCount, filteredPLinksWithIndex.length, filteredMLinksWithIndex.length)) {
+                  log("info", `[Merge] 关联成功: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (本次合并 ${mergedCount} 集)`);
+                  if (mappingEntries.length > 0) {
+                      mappingEntries.sort((a, b) => a.idx - b.idx);
+                      log("info", `[Merge] [${secSource}] 映射详情:\n${mappingEntries.map(e => e.text).join('\n')}`);
+                  }
+                  
+                  // 标记该副源动漫已被消耗，不能再作为后续轮次的主源（本组内）
+                  groupConsumedIds.add(match.animeId);
+                  // 同时也标记为全局消耗，用于最终清理
+                  globalConsumedIds.add(match.animeId);
 
-              hasMergedAny = true;
-              actualMergedSources.push(secSource);
-              contentSignatureParts.push(match.animeId);
+                  hasMergedAny = true;
+                  actualMergedSources.push(secSource);
+                  contentSignatureParts.push(match.animeId);
+              } else {
+                  log("info", `[Merge] 关联取消: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (匹配率过低: ${mergedCount}/${Math.max(filteredPLinksWithIndex.length, filteredMLinksWithIndex.length)})`);
+              }
             }
           }
         } // end loop availableSecondaries
