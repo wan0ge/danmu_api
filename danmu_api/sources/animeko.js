@@ -121,7 +121,7 @@ export default class AnimekoSource extends BaseSource {
    * @returns {Array} 过滤后的结果列表
    */
   filterSearchResults(list, keyword) {
-    const threshold = 0.6; // 相似度阈值
+    const threshold = 0.7; // 相似度阈值
     const normalizedKeyword = simplized(keyword).toLowerCase().trim();
 
     // 1. 基础相似度过滤 (获取所有潜在相关结果)
@@ -457,28 +457,68 @@ export default class AnimekoSource extends BaseSource {
 
   /**
    * 获取完整弹幕列表
-   * 支持传入纯数字ID或完整URL
+   * 支持自动降级：Global -> CN
    * @param {string} episodeId 剧集 ID 或 完整 API URL
    * @returns {Promise<Array>} 弹幕数组
    */
   async getEpisodeDanmu(episodeId) {
-    try {
-      // 兼容分片请求传递过来的完整 URL
-      const url = episodeId.startsWith('http') 
-        ? episodeId 
-        : `https://danmaku-global.myani.org/v1/danmaku/${episodeId}`;
-        // 目前使用的服务器是全球区域的，备用大陆区域：https://danmaku-cn.myani.org
-
-      const resp = await httpGet(url, { headers: this.headers });
-
-      if (!resp || !resp.data) return [];
-      const body = resp.data;
-      if (body.danmakuList) return body.danmakuList;
-      return [];
-    } catch (error) {
-      log("error", "[Animeko] GetDanmu error:", { message: error.message, url: episodeId });
+    // 1. 提取真实 ID
+    // 兼容分片请求传递过来的完整 URL 或 纯 ID
+    let realId = String(episodeId).trim();
+    
+    // 如果是完整 URL (包含 /)，尝试提取最后一部分
+    if (realId.includes('/')) {
+      const parts = realId.split('/');
+      realId = parts[parts.length - 1]; 
+    }
+    
+    // 去除可能存在的 URL 参数干扰 (例如 ?v=1)
+    if (realId.includes('?')) {
+      realId = realId.split('?')[0];
+    }
+    
+    if (!realId) {
+      log("error", "[Animeko] 无效的 episodeId");
       return [];
     }
+
+    const HOST_GLOBAL = "https://danmaku-global.myani.org";
+    const HOST_CN = "https://danmaku-cn.myani.org";
+
+    // 定义内部通用请求函数
+    const fetchDanmu = async (hostUrl) => {
+      const targetUrl = `${hostUrl}/v1/danmaku/${realId}`;
+      try {
+        const resp = await httpGet(targetUrl, { headers: this.headers });
+        
+        if (!resp || !resp.data) return null;
+        
+        const body = resp.data;
+        if (body.danmakuList) return body.danmakuList;
+        return null;
+      } catch (error) {
+        log("warn", `[Animeko] 请求节点失败: ${hostUrl} - ${error.message}`);
+        return null;
+      }
+    };
+
+    // 2. 优先尝试 Global 节点
+    let danmuList = await fetchDanmu(HOST_GLOBAL);
+
+    // 3. 如果失败，降级尝试 CN 节点
+    if (!danmuList) {
+      log("info", `[Animeko] Global 节点获取失败/无数据，降级尝试 CN 节点... ID:${realId}`);
+      danmuList = await fetchDanmu(HOST_CN);
+    }
+
+    // 4. 返回结果或空数组
+    if (danmuList) {
+      log("info", `[Animeko] 成功获取弹幕，共 ${danmuList.length} 条`);
+      return danmuList;
+    }
+
+    log("error", "[Animeko] 所有节点尝试均失败，无法获取弹幕");
+    return [];
   }
 
   /**
@@ -492,7 +532,7 @@ export default class AnimekoSource extends BaseSource {
         "type": "animeko",
         "segment_start": 0,
         "segment_end": 30000, 
-        "url": `https://danmaku-global.myani.org/v1/danmaku/${id}` // 使用完整 URL
+        "url": String(id)
       }]
     });
   }
