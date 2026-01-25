@@ -21,13 +21,16 @@ export const DISPLAY_CONNECTOR = '&';
  */
 function cleanText(text) {
   if (!text) return '';
-  // 1. 繁体转简体
+  // 繁体转简体
   let clean = simplized(text);
-  // 2. 移除源标识如 【dandan】
+  // 字符映射
+  clean = clean.replace(/(\(|（)?(普通话|国语|中文配音|中配)版?(\)|）)?/g, '中配版');
+  clean = clean.replace(/(\(|（)?(日语|日配|原版)版?(\)|）)?/g, '');
+  // 移除源标识如 【dandan】
   clean = clean.replace(/【.*?】/g, '');
-  // 3. 移除地区限制标识如 (仅限台湾地区)
+  // 移除地区限制标识如 (仅限台湾地区)
   clean = clean.replace(/(\(|（)仅限.*?地区(\)|）)/g, '');
-  // 4. 移除常见标点符号 (避免 "不行！" 和 "不行。" 被判为不同)
+  // 移除常见标点符号 (避免 "不行！" 和 "不行。" 被判为不同)
   clean = clean.replace(/[!！?？,，.。、~～]/g, ' ');
   
   return normalizeSpaces(clean).toLowerCase().trim();
@@ -216,7 +219,7 @@ function extractSeasonMarkers(title, typeDesc = '') {
   const type = cleanText(typeDesc || '');
 
   const patterns = [
-    { regex: /第(\d+)[季期]/, prefix: 'S' }, 
+    { regex: /(?:第)?(\d+)[季期部]/, prefix: 'S' }, 
     { regex: /season\s*(\d+)/, prefix: 'S' }, 
     { regex: /s(\d+)/, prefix: 'S' },         
     { regex: /part\s*(\d+)/, prefix: 'P' },   
@@ -721,7 +724,7 @@ function generateSafeMergedId(id1, id2, salt = '') {
 
 /**
  * 执行源合并逻辑
- * 遍历配置的源配置组，支持一主多从的链式合并
+ * 遍历配置的源配置组，支持一主多从的链式合并，并实现了主源轮替逻辑
  * @param {Array} curAnimes 当前所有的动画条目列表
  */
 export async function applyMergeLogic(curAnimes) {
@@ -730,143 +733,159 @@ export async function applyMergeLogic(curAnimes) {
 
   log("info", `[Merge] 启动源合并策略，配置: ${JSON.stringify(groups)}`);
 
-  // 获取过滤正则 (直接从 globals 获取，支持 RegExp 或字符串)
+  // 获取过滤正则
   let epFilter = globals.episodeTitleFilter;
   if (epFilter && typeof epFilter === 'string') {
       try { epFilter = new RegExp(epFilter, 'i'); } catch (e) { epFilter = null; }
   }
 
   const newMergedAnimes = [];
-  const usedBaseAnimeIds = new Set(); // 记录被主源使用的ID
-  const mergedSecondaryAnimes = new Set(); // 记录被副源使用的对象
-
+  
   // 全局去重签名集合，用于防止不同配置组生成完全相同的内容
-  // 签名格式：PrimaryID|SecID1|SecID2...
   const generatedSignatures = new Set();
+  // 全局被消耗的ID集合，用于在最后统一清理原始条目
+  const globalConsumedIds = new Set();
 
-  for (const { primary, secondaries } of groups) {
-    // 生成当前配置组的唯一指纹 (例如 "dandan&animeko&bahamut")
-    const groupFingerprint = `${primary}&${secondaries.join('&')}`;
+  for (const group of groups) {
+    // 每次处理一个新组时，创建一个局部已处理集合
+    // 允许不同组使用同一个原始动漫条目，但在同一个组的逻辑内防止重复使用
+    const groupConsumedIds = new Set();
 
-    const primaryItems = curAnimes.filter(a => a.source === primary && !a._isMerged);
-    
-    // 如果该主源没有数据，直接跳过整个组
-    if (primaryItems.length === 0) continue;
+    // 构建完整的优先级列表：[主源, 副源1, 副源2, ...]
+    const fullPriorityList = [group.primary, ...group.secondaries];
+    const groupFingerprint = fullPriorityList.join('&');
 
-    // 对每个主源动漫条目进行处理
-    for (const pAnime of primaryItems) {
+    // 开始主源轮替逻辑
+    // 依次尝试将列表中的每个源作为"主源"，去匹配列表后面的所有"副源"
+    for (let i = 0; i < fullPriorityList.length - 1; i++) {
+      const currentPrimarySource = fullPriorityList[i];
+      const availableSecondaries = fullPriorityList.slice(i + 1);
+
+      // 获取该源所有结果
+      const allSourceItems = curAnimes.filter(a => a.source === currentPrimarySource);
       
-      const cachedPAnime = globals.animes.find(a => String(a.animeId) === String(pAnime.animeId));
-      if (!cachedPAnime?.links) {
-         log("warn", `[Merge] 主源数据不完整，跳过: ${pAnime.animeTitle}`);
-         continue;
+      // 计算剩余的源中，实际上有多少个源是有数据的（且未在本组被消耗）
+      const activeRemainingSourcesCount = availableSecondaries.filter(secSrc => {
+          return curAnimes.some(a => a.source === secSrc && !groupConsumedIds.has(a.animeId));
+      }).length;
+      
+      // 如果源本身就没有任何结果
+      if (allSourceItems.length === 0) {
+        // 如果后续还有足够（>=2）的源可能配对，则报告轮替
+        if (activeRemainingSourcesCount >= 1 && (activeRemainingSourcesCount + (allSourceItems.length > 0 ? 1 : 0)) >= 2) {
+             if (activeRemainingSourcesCount >= 2) {
+                 log("info", `[Merge] 轮替: 源 [${currentPrimarySource}] 无可用结果，尝试下一顺位.`);
+             }
+        }
+        continue; 
       }
 
-      // 提前获取主源标题用于日志显示（去除 from 后缀）
-      const logTitleA = pAnime.animeTitle.replace(/\s*from\s+.*$/i, '');
+      // 获取当前轮次的主源候选列表（排除已被本组处理过的条目）
+      const primaryItems = allSourceItems.filter(a => !groupConsumedIds.has(a.animeId));
 
-      // 创建一个衍生对象，作为合并的基础容器
-      let derivedAnime = JSON.parse(JSON.stringify(cachedPAnime));
-      
-      // 记录本次实际成功合并的副源名称和ID，用于生成动态标题和去重签名
-      const actualMergedSources = []; 
-      const contentSignatureParts = [pAnime.animeId]; // 签名的第一部分是主源ID
+      // 如果 primaryItems 为空，说明该源的数据已经被之前的合并消耗掉了，静默跳过
+      if (primaryItems.length === 0) {
+        continue;
+      }
 
-      let hasMergedAny = false; // 标记是否成功合并过至少一个副源
-
-      // 遍历所有副源，依次尝试合入 derivedAnime
-      for (const secSource of secondaries) {
-        // 从当前所有animes中找出该副源的列表
-        const secondaryItems = curAnimes.filter(a => a.source === secSource && !a._isMerged);
-        if (secondaryItems.length === 0) continue;
-
-        // 寻找匹配
-        const match = findSecondaryMatch(pAnime, secondaryItems);
+      for (const pAnime of primaryItems) {
+        const cachedPAnime = globals.animes.find(a => String(a.animeId) === String(pAnime.animeId));
         
-        if (match) {
-          const cachedMatch = globals.animes.find(a => String(a.animeId) === String(match.animeId));
-          if (!cachedMatch?.links) continue;
+        if (!cachedPAnime?.links) {
+             log("warn", `[Merge] 主源数据不完整，跳过: ${pAnime.animeTitle}`);
+             continue;
+        }
 
-          // 获取副源标题用于日志
-          const logTitleB = cachedMatch.animeTitle.replace(/\s*from\s+.*$/i, '');
+        const logTitleA = pAnime.animeTitle.replace(/\s*from\s+.*$/i, '');
+        let derivedAnime = JSON.parse(JSON.stringify(cachedPAnime));
+        
+        const actualMergedSources = []; 
+        const contentSignatureParts = [pAnime.animeId];
+        let hasMergedAny = false;
 
-          // 1. 预过滤 (保留 index 映射)
-          const filteredPLinksWithIndex = filterEpisodes(derivedAnime.links, epFilter);
-          const filteredMLinksWithIndex = filterEpisodes(cachedMatch.links, epFilter);
+        // 尝试匹配后续的副源
+        for (const secSource of availableSecondaries) {
+          // 确保日志映射数组只针对当前副源匹配
+          const mappingEntries = [];
 
-          // 2. 计算最佳对齐偏移量
-          const offset = findBestAlignmentOffset(filteredPLinksWithIndex, filteredMLinksWithIndex);
+          // 排除掉那些已经被标记为本组合并消耗掉的副源
+          const secondaryItems = curAnimes.filter(a => a.source === secSource && !groupConsumedIds.has(a.animeId));
+          if (secondaryItems.length === 0) continue;
+
+          // 寻找匹配 
+          const match = findSecondaryMatch(pAnime, secondaryItems);
           
-          if (offset !== 0) {
+          if (match) {
+            const cachedMatch = globals.animes.find(a => String(a.animeId) === String(match.animeId));
+            if (!cachedMatch?.links) continue;
+
+            const logTitleB = cachedMatch.animeTitle.replace(/\s*from\s+.*$/i, '');
+            const filteredPLinksWithIndex = filterEpisodes(derivedAnime.links, epFilter);
+            const filteredMLinksWithIndex = filterEpisodes(cachedMatch.links, epFilter);
+            const offset = findBestAlignmentOffset(filteredPLinksWithIndex, filteredMLinksWithIndex);
+            
+            if (offset !== 0) {
               log("info", `[Merge] 集数自动对齐 (${secSource}): Offset=${offset} (P:${filteredPLinksWithIndex.length}, S:${filteredMLinksWithIndex.length})`);
-          }
+            }
 
-          // 更新 ID (传入 groupFingerprint 作为 salt，保证不同配置组基础ID不同)
-          derivedAnime.animeId = generateSafeMergedId(derivedAnime.animeId, match.animeId, groupFingerprint);
-          derivedAnime.bangumiId = String(derivedAnime.animeId);
+            derivedAnime.animeId = generateSafeMergedId(derivedAnime.animeId, match.animeId, groupFingerprint);
+            derivedAnime.bangumiId = String(derivedAnime.animeId);
 
-          let mergedCount = 0;
-          const mappingEntries = []; // 用于存储映射日志
-          const matchedPIndices = new Set(); // 记录已被匹配的主源索引，用于后续检查落单
+            let mergedCount = 0;
+            const matchedPIndices = new Set(); 
 
-          // 3. 执行合并 (应用偏移量) - 以当前副源为驱动
-          for (let i = 0; i < filteredMLinksWithIndex.length; i++) {
-              const pIndex = i + offset; 
-              const sourceLink = filteredMLinksWithIndex[i].link;
-              const sTitleShort = sourceLink.name || sourceLink.title || `Index ${i}`;
-
+            // 执行合并
+            for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
+              const pIndex = k + offset; 
+              const sourceLink = filteredMLinksWithIndex[k].link;
+              const sTitleShort = sourceLink.name || sourceLink.title || `Index ${k}`;
+              
               if (pIndex >= 0 && pIndex < derivedAnime.links.length) {
-                  // [匹配成功] (需进一步校验)
-                  const targetLink = derivedAnime.links[pIndex];
-                  const pTitleShort = targetLink.name || targetLink.title || `Index ${pIndex}`;
-
-                  // 3.1 特殊集匹配校验 (Opening/Ending/Interview)
-                  const specialP = getSpecialEpisodeType(targetLink.title);
-                  const specialS = getSpecialEpisodeType(sourceLink.title);
-
-                  if (specialP !== specialS) {
-                      mappingEntries.push({
+                const targetLink = derivedAnime.links[pIndex];
+                const pTitleShort = targetLink.name || targetLink.title || `Index ${pIndex}`;
+                
+                // 特殊集校验
+                const specialP = getSpecialEpisodeType(targetLink.title);
+                const specialS = getSpecialEpisodeType(sourceLink.title);
+                if (specialP !== specialS) {
+                    mappingEntries.push({
                           idx: pIndex,
                           text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (特殊集类型不匹配)`
-                      });
-                      continue; 
-                  }
-                  
-                  // 执行 ID 合并
-                  const idB = sanitizeUrl(sourceLink.url);
-                  
-                  let currentUrl = targetLink.url;
-                  const secPart = `${secSource}:${idB}`;
-                  
-                  // 如果 targetLink.url 还没有任何合并标记，确保主源前缀存在
-                  if (!currentUrl.includes(MERGE_DELIMITER)) {
-                      if (!currentUrl.startsWith(primary + ':')) {
-                         currentUrl = `${primary}:${currentUrl}`;
-                      }
-                  }
-                  
-                  targetLink.url = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
-                  
-                  mappingEntries.push({
+                    });
+                    continue;
+                }
+                
+                // ID 合并
+                const idB = sanitizeUrl(sourceLink.url);
+                let currentUrl = targetLink.url;
+                const secPart = `${secSource}:${idB}`;
+                
+                if (!currentUrl.includes(MERGE_DELIMITER)) {
+                    if (!currentUrl.startsWith(currentPrimarySource + ':')) {
+                       currentUrl = `${currentPrimarySource}:${currentUrl}`;
+                    }
+                }
+                targetLink.url = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
+                
+                mappingEntries.push({
                       idx: pIndex,
                       text: `   [匹配] ${pTitleShort} <-> ${sTitleShort}`
-                  });
-                  matchedPIndices.add(pIndex);
-                  
-                  // 修改分集标题
-                  if (targetLink.title) {
-                      let sLabel = secSource;
-                      if (sourceLink.title) {
-                          const sMatch = sourceLink.title.match(/^【([^】\d]+)(?:\d*)】/);
-                          if (sMatch) sLabel = sMatch[1].trim();
-                      }
-
-                      targetLink.title = targetLink.title.replace(
-                          /^【([^】]+)】/, 
-                          (match, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`
-                      );
-                  }
-                  mergedCount++;
+                });
+                matchedPIndices.add(pIndex);
+                
+                // 标题更新
+                if (targetLink.title) {
+                    let sLabel = secSource;
+                    if (sourceLink.title) {
+                        const sMatch = sourceLink.title.match(/^【([^】\d]+)(?:\d*)】/);
+                        if (sMatch) sLabel = sMatch[1].trim();
+                    }
+                    targetLink.title = targetLink.title.replace(
+                        /^【([^】]+)】/, 
+                        (match, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`
+                    );
+                }
+                mergedCount++;
               } else {
                   // [副源落单]
                   mappingEntries.push({
@@ -874,73 +893,73 @@ export async function applyMergeLogic(curAnimes) {
                       text: `   [落单] (主源越界) <-> ${sTitleShort}`
                   });
               }
-          }
+            }
+            
+            // 检查主源是否有落单集数
+            for (let j = 0; j < derivedAnime.links.length; j++) {
+                if (!matchedPIndices.has(j)) {
+                    const targetLink = derivedAnime.links[j];
+                    const pTitleShort = targetLink.name || targetLink.title || `Index ${j}`;
+                    mappingEntries.push({
+                        idx: j,
+                        text: `   [落单] ${pTitleShort} <-> (副源缺失或被略过)`
+                    });
+                }
+            }
 
-          // 4. 检查主源是否有落单集数
-          for (let j = 0; j < derivedAnime.links.length; j++) {
-              if (!matchedPIndices.has(j)) {
-                  const targetLink = derivedAnime.links[j];
-                  const pTitleShort = targetLink.name || targetLink.title || `Index ${j}`;
-                  
-                  mappingEntries.push({
-                      idx: j,
-                      text: `   [落单] ${pTitleShort} <-> (副源缺失或被略过)`
-                  });
+            if (mergedCount > 0) {
+              log("info", `[Merge] 关联成功: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (本次合并 ${mergedCount} 集)`);
+              if (mappingEntries.length > 0) {
+                  mappingEntries.sort((a, b) => a.idx - b.idx);
+                  log("info", `[Merge] [${secSource}] 映射详情:\n${mappingEntries.map(e => e.text).join('\n')}`);
               }
-          }
+              
+              // 标记该副源动漫已被消耗，不能再作为后续轮次的主源（本组内）
+              groupConsumedIds.add(match.animeId);
+              // 同时也标记为全局消耗，用于最终清理
+              globalConsumedIds.add(match.animeId);
 
-          // 排序并打印日志
-          log("info", `[Merge] 关联成功: [${primary}] ${logTitleA} <-> [${secSource}] ${logTitleB} (本次合并 ${mergedCount} 集)`);
+              hasMergedAny = true;
+              actualMergedSources.push(secSource);
+              contentSignatureParts.push(match.animeId);
+            }
+          }
+        } // end loop availableSecondaries
+
+        if (hasMergedAny) {
+          const signature = contentSignatureParts.join('|');
+          if (generatedSignatures.has(signature)) {
+               log("info", `[Merge] 检测到重复的合并结果 (Signature: ${signature})，已自动隐去冗余条目。`);
+               continue;
+          }
+          generatedSignatures.add(signature);
+
+          const joinedSources = actualMergedSources.join(DISPLAY_CONNECTOR);
+          // 标题中展示所有参与合并的源
+          derivedAnime.animeTitle = derivedAnime.animeTitle.replace(`from ${currentPrimarySource}`, `from ${currentPrimarySource}${DISPLAY_CONNECTOR}${joinedSources}`);
           
-          if (mappingEntries.length > 0) {
-              mappingEntries.sort((a, b) => a.idx - b.idx);
-              log("info", `[Merge] [${secSource}] 映射详情:\n${mappingEntries.map(e => e.text).join('\n')}`);
-          }
-
-          // 记录成功的合并信息
-          mergedSecondaryAnimes.add(match);
-          hasMergedAny = true;
-          actualMergedSources.push(secSource); // 记录实际合并成功的源名称
-          contentSignatureParts.push(match.animeId); // 记录实际合并成功的源ID
+          derivedAnime.source = currentPrimarySource;
+          
+          addAnime(derivedAnime);
+          newMergedAnimes.push(derivedAnime);
+          
+          // 标记当前主源动漫已被消耗
+          groupConsumedIds.add(pAnime.animeId);
+          globalConsumedIds.add(pAnime.animeId);
         }
-      } // end for secondaries
+      } // end loop primaryItems
+    } // end loop fullPriorityList (Rotation)
+  } // end loop groups
 
-      // 如果成功合并了至少一个副源
-      if (hasMergedAny) {
-         // --- 去重检查开始 ---
-         // 生成内容签名 (例如: 12345|67890|54321)
-         const signature = contentSignatureParts.join('|');
-         if (generatedSignatures.has(signature)) {
-             log("info", `[Merge] 检测到重复的合并结果 (Signature: ${signature})，已自动隐去冗余条目。`);
-             continue; 
-         }
-         generatedSignatures.add(signature);
-         // --- 去重检查结束 ---
-
-         // 使用 actualMergedSources 生成标题，只显示真正合并成功的源
-         const joinedSources = actualMergedSources.join(DISPLAY_CONNECTOR);
-         
-         derivedAnime.animeTitle = derivedAnime.animeTitle.replace(`from ${primary}`, `from ${primary}${DISPLAY_CONNECTOR}${joinedSources}`);
-         derivedAnime.source = primary;
-         
-         addAnime(derivedAnime);
-         newMergedAnimes.push(derivedAnime);
-         
-         // 标记原始主源已被合并替代
-         usedBaseAnimeIds.add(pAnime.animeId);
-      }
-    } // end for primaryItems
+  // 将合并后的结果插入到列表最顶部
+  if (newMergedAnimes.length > 0) {
+     curAnimes.unshift(...newMergedAnimes);
   }
-
-  curAnimes.push(...newMergedAnimes);
   
-  mergedSecondaryAnimes.forEach(item => {
-      item._isMerged = true;
-  });
-
+  // 清理已被合并消耗的原始条目（全局清理）
   for (let i = curAnimes.length - 1; i >= 0; i--) {
     const item = curAnimes[i];
-    if (item._isMerged || usedBaseAnimeIds.has(item.animeId)) {
+    if (item._isMerged || globalConsumedIds.has(item.animeId)) {
       curAnimes.splice(i, 1);
     }
   }
