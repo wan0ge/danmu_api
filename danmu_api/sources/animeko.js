@@ -121,7 +121,7 @@ export default class AnimekoSource extends BaseSource {
    * @returns {Array} 过滤后的结果列表
    */
   filterSearchResults(list, keyword) {
-    const threshold = 0.7; // 相似度阈值
+    const threshold = 0.6; // 相似度阈值
     const normalizedKeyword = simplized(keyword).toLowerCase().trim();
 
     // 1. 基础相似度过滤 (获取所有潜在相关结果)
@@ -576,3 +576,4 @@ export default class AnimekoSource extends BaseSource {
       });
   }
 }
+
