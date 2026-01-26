@@ -124,7 +124,7 @@ export default class AnimekoSource extends BaseSource {
    * @returns {Array} 过滤后的结果列表
    */
   filterSearchResults(list, keyword) {
-    const threshold = 0.6; // 相似度阈值
+    const threshold = 0.9; // 相似度阈值
     
     // 标准化函数
     const normalize = (str) => {
