@@ -124,12 +124,12 @@ export default class AnimekoSource extends BaseSource {
    * @returns {Array} 过滤后的结果列表
    */
   filterSearchResults(list, keyword) {
-    const threshold = 0.9; // 相似度阈值
+    const threshold = 0.8; // 相似度阈值
     
     // 标准化函数
     const normalize = (str) => {
         if (!str) return "";
-        return simplized(str).toLowerCase().replace(/[^\u4e00-\u9fa5a-z0-9]/g, "");
+        return simplized(str).toLowerCase().replace(/[\p{P}\p{S}\s]/gu, "");
     };
 
     const normalizedKeyword = normalize(keyword);
