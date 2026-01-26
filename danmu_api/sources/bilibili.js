@@ -205,10 +205,20 @@ export default class BilibiliSource extends BaseSource {
           .replace(/:/g, '：')
           .trim();
 
+		// 清洗原标题
+        const cleanedOrgTitle = (item.org_title || "")
+          .replace(/<[^>]+>/g, '')
+          .replace(/&[^;]+;/g, match => {
+            const entities = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&#39;': "'" };
+            return entities[match] || match;
+          })
+          .trim();
+
         const resultItem = {
           provider: "bilibili",
           mediaId,
           title: cleanedTitle,
+		  org_title: cleanedOrgTitle,
           type: mediaType,
           year,
           imageUrl: item.cover || null,
@@ -426,7 +436,7 @@ export default class BilibiliSource extends BaseSource {
 
     const processPromises = sourceAnimes
       // 港澳台资源不做严格标题匹配，因为可能搜到的是日语/繁体标题
-      .filter(anime => anime.isOversea || titleMatches(anime.title, queryTitle))
+      .filter(anime => anime.isOversea || titleMatches(anime.title, queryTitle)||(anime.org_title && titleMatches(anime.org_title, queryTitle)))
       .map(async (anime) => {
         try {
           let links = [];
