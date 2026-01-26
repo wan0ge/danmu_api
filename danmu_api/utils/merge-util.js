@@ -501,12 +501,20 @@ function checkDateMatch(dateA, dateB) {
 /**
  * 验证合并覆盖率是否合规
  * 防止出现大量落单的情况（如剧场版强行匹配TV版）
+ * 针对 animeko 源进行豁免（因为可能包含未放送集数，总集数差异大）
  * @param {number} mergedCount 成功匹配的集数
  * @param {number} totalA 主源总集数
  * @param {number} totalB 副源总集数
+ * @param {string} sourceA 主源名称
+ * @param {string} sourceB 副源名称
  * @returns {boolean} 是否合规
  */
-function isMergeRatioValid(mergedCount, totalA, totalB) {
+function isMergeRatioValid(mergedCount, totalA, totalB, sourceA, sourceB) {
+    // Animeko 豁免逻辑
+    if (sourceA === 'animeko' || sourceB === 'animeko') {
+        return true;
+    }
+
     const maxTotal = Math.max(totalA, totalB);
     if (maxTotal === 0) return false;
 
@@ -565,9 +573,7 @@ export function findSecondaryMatch(primaryAnime, secondaryList) {
     }
 
     // 主副标题结构冲突检测
-    if (checkTitleSubtitleConflict(rawPrimaryTitle, rawSecTitle)) {
-        continue;
-    }
+    const hasStructureConflict = checkTitleSubtitleConflict(rawPrimaryTitle, rawSecTitle);
 
     // 豁免检测 (使用 clean 后的 simTitle)
     const isSeasonExactMatch = hasSameSeasonMarker(primaryTitleForSim, secTitleForSim, primaryAnime.typeDescription, secAnime.typeDescription);
@@ -594,6 +600,11 @@ export function findSecondaryMatch(primaryAnime, secondaryList) {
     // 取两者的最大值作为最终得分
     let score = Math.max(scoreFull, scoreBase);
     
+    // 如果存在结构冲突（一个有副标题一个没有），给予适量惩罚 (例如 -0.15)
+    if (hasStructureConflict) {
+        score -= 0.15;
+    }
+
     if (dateScore !== -1) {
         score += dateScore;
     }
@@ -1042,7 +1053,7 @@ export async function applyMergeLogic(curAnimes) {
 
             // 最终校验：合并覆盖率是否达标
             if (mergedCount > 0) {
-              if (isMergeRatioValid(mergedCount, filteredPLinksWithIndex.length, filteredMLinksWithIndex.length)) {
+              if (isMergeRatioValid(mergedCount, filteredPLinksWithIndex.length, filteredMLinksWithIndex.length, currentPrimarySource, secSource)) {
                   log("info", `[Merge] 关联成功: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (本次合并 ${mergedCount} 集)`);
                   if (mappingEntries.length > 0) {
                       mappingEntries.sort((a, b) => a.idx - b.idx);
