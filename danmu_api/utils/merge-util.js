@@ -15,7 +15,7 @@ export const DISPLAY_CONNECTOR = '&';
 
 /**
  * 文本清洗工具函数
- * 将文本转为简体，并移除特定源标识、地区限制及标点符号，用于提高匹配精度
+ * 将文本转为简体，移除干扰标识，并对季数、章节进行标准化处理，用于提高匹配精度
  * @param {string} text 原始文本
  * @returns {string} 清洗后的文本
  */
@@ -23,7 +23,21 @@ function cleanText(text) {
   if (!text) return '';
   // 繁体转简体
   let clean = simplized(text);
-  // 字符映射
+  // 语义标准化：The Final Season -> 最终季
+  clean = clean.replace(/(?:The\s+)?Final\s+Season/gi, '最终季');
+  // 季数标准化：Season 2, S2 -> 第2季
+  clean = clean.replace(/(?:Season|S)\s*(\d+)/gi, '第$1季');
+  // 中文数字标准化：第二季 -> 第2季
+  const cnNums = {'一':'1', '二':'2', '三':'3', '四':'4', '五':'5', '六':'6', '七':'7', '八':'8', '九':'9', '十':'10'};
+  clean = clean.replace(/第([一二三四五六七八九十])季/g, (m, num) => `第${cnNums[num]}季`);
+  // 章节Part标准化：Part.2, Part 2, P2 -> 第2部分
+  clean = clean.replace(/(?:Part|P)[\s.]*(\d+)/gi, '第$1部分');
+  // 罗马数字标准化：III -> 第3季 (仅匹配单词边界)
+  clean = clean.replace(/(\s|^)(IV|III|II|I)(\s|$)/g, (match, p1, roman, p2) => {
+      const rMap = {'I':'1', 'II':'2', 'III':'3', 'IV':'4'};
+      return `${p1}第${rMap[roman]}季${p2}`;
+  });
+  // 配音版本的标准化
   clean = clean.replace(/(\(|（)?(普通话|国语|中文配音|中配)版?(\)|）)?/g, '中配版');
   clean = clean.replace(/(\(|（)?(日语|日配|原版)版?(\)|）)?/g, '');
   // 移除源标识如 【dandan】
@@ -31,9 +45,9 @@ function cleanText(text) {
   // 移除地区限制标识如 (仅限台湾地区)
   clean = clean.replace(/(\(|（)仅限.*?地区(\)|）)/g, '');
   // 移除常见标点符号 (避免 "不行！" 和 "不行。" 被判为不同)
-  clean = clean.replace(/[!！?？,，.。、~～]/g, ' ');
-  
-  return normalizeSpaces(clean).toLowerCase().trim();
+  clean = clean.replace(/[!！?？,，.。、~～:：\-–—]/g, ' ');
+  // 压缩空格并转小写
+  return clean.replace(/\s+/g, ' ').toLowerCase().trim();
 }
 
 /**
