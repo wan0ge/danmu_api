@@ -213,8 +213,14 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
     return null;
   }
 
+  // 优化搜索关键词: 剥离 "Season 2", "第二季" 等后缀
+  const cleanTitle = cleanSearchQuery(title);
+  if (cleanTitle !== title) {
+    log("info", `[TMDB] 优化搜索关键词: "${title}" -> "${cleanTitle}"`);
+  }
+
   // 检查是否已有相同关键词的搜索任务正在进行
-  let task = TMDB_PENDING.get(title);
+  let task = TMDB_PENDING.get(cleanTitle);
 
   if (!task) {
     // 创建一个新的控制器，用于控制真正的后台网络请求
@@ -340,12 +346,12 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
         };
 
         // 第一步：TMDB搜索
-        log("info", `[TMDB] 正在搜索 (Shared Task): ${title}`);
+        log("info", `[TMDB] 正在搜索 (Shared Task): ${cleanTitle}`);
         
         // 检查 masterController 是否已被中断
         if (backgroundSignal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-        const respZh = await searchTmdbTitles(title, "multi", { signal: backgroundSignal });
+        const respZh = await searchTmdbTitles(cleanTitle, "multi", { signal: backgroundSignal });
         
         if (!respZh || !respZh.data) {
           log("info", "[TMDB] TMDB搜索结果为空");
@@ -382,9 +388,9 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
           if (!resultTitle) continue;
           
           // 先计算原标题的相似度
-          const directScore = similarity(title, resultTitle);
+          const directScore = similarity(cleanTitle, resultTitle);
           const originalTitle = result.original_name || result.original_title || "";
-          const originalScore = originalTitle ? similarity(title, originalTitle) : 0;
+          const originalScore = originalTitle ? similarity(cleanTitle, originalTitle) : 0;
           const initialScore = Math.max(directScore, originalScore);
           
           // 如果原标题已经100%匹配，标记跳过后续所有别名搜索
@@ -433,7 +439,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
               log("info", `[TMDB] 已达到别名获取上限(${MAX_ALTERNATIVE_FETCHES})，使用原标题: ${resultTitle}`);
             }
             
-            const finalDirectScore = similarity(title, chineseTitle);
+            const finalDirectScore = similarity(cleanTitle, chineseTitle);
             finalScore = Math.max(finalDirectScore, originalScore);
             
             const displayInfo = chineseTitle !== resultTitle 
@@ -482,7 +488,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
 
       } catch (error) {
          if (error.name === 'AbortError') {
-             log("info", `[TMDB] 后台搜索任务已完全终止 (${title})`);
+             log("info", `[TMDB] 后台搜索任务已完全终止 (${cleanTitle})`);
              throw error;
          }
          log("error", "[TMDB] Background Search error:", {
@@ -500,14 +506,14 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
       refCount: 0,
       promise: executeSearch().finally(() => {
         // 无论成功失败，移除 Map 记录
-        TMDB_PENDING.delete(title);
+        TMDB_PENDING.delete(cleanTitle);
       })
     };
     
-    TMDB_PENDING.set(title, task);
-    log("info", `[TMDB] 启动新搜索任务: ${title}`);
+    TMDB_PENDING.set(cleanTitle, task);
+    log("info", `[TMDB] 启动新搜索任务: ${cleanTitle}`);
   } else {
-    log("info", `[TMDB] 加入正在进行的搜索: ${title} (${sourceLabel})`);
+    log("info", `[TMDB] 加入正在进行的搜索: ${cleanTitle} (${sourceLabel})`);
   }
 
   // 增加引用计数
@@ -516,11 +522,11 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
   // 定义退出任务的逻辑
   const leaveTask = () => {
     // 再次获取任务确认其仍存在
-    const currentTask = TMDB_PENDING.get(title);
+    const currentTask = TMDB_PENDING.get(cleanTitle);
     if (currentTask === task) {
         task.refCount--;
         if (task.refCount <= 0) {
-            log("info", `[TMDB] 所有调用者已取消，终止后台请求: ${title}`);
+            log("info", `[TMDB] 所有调用者已取消，终止后台请求: ${cleanTitle}`);
             task.controller.abort();
         }
     }
@@ -616,7 +622,7 @@ export async function getTMDBChineseTitle(title, season = null, episode = null) 
 
 // 识别季度、剧场版、外传、副标题等后缀信息的正则白名单
 const SUFFIX_PATTERNS = [
-  /(\s+|^)(?:第)?(\d+)[季期部]/,
+  /(\s+|^)(?:第)?(\d+|[一二三四五六七八九十]+)[季期部]/,
   /(\s+|^)season\s*\d+/i,
   /(\s+|^)s\d+/i,
   /(\s+|^)part\s*\d+/i,
@@ -650,6 +656,19 @@ function detectSuffixStart(title) {
     }
   }
   return minIndex;
+}
+
+/**
+ * 利用后缀正则清洗搜索关键词，移除季度等信息以提高 TMDB 搜索命中率
+ * @param {string} title 原始标题
+ * @returns {string} 清洗后的标题主体
+ */
+function cleanSearchQuery(title) {
+  const limit = detectSuffixStart(title);
+  if (limit < title.length) {
+    return title.substring(0, limit).trim();
+  }
+  return title;
 }
 
 /**
@@ -690,18 +709,14 @@ export function smartTitleReplace(animes, cnAlias) {
     // 策略 A: LCP 模式
     if (lcp && lcp.length > 1 && originalTitle.startsWith(lcp)) {
       const suffix = originalTitle.substring(lcp.length).trim();
-      
       let newTitle;
       if (!suffix) {
           newTitle = cnAlias;
-      } 
-      else if (suffix.match(/^[~～:：]/)) {
+      } else if (suffix.match(/^[~～:：]/)) {
           newTitle = cnAlias + suffix;
-      } 
-      else {
+      } else {
           newTitle = cnAlias + " " + suffix;
       }
-
       anime._displayTitle = newTitle;
       log("info", `[TMDB] [LCP模式] "${originalTitle}" -> "${newTitle}"`);
     } 
