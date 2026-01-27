@@ -35,15 +35,12 @@ export default class AnimekoSource extends BaseSource {
    */
   async search(keyword) {
     try {
-      // 标准化函数
-      const searchKeyword = keyword.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim();
-      
-      log("info", `[Animeko] 开始搜索 (V0): ${searchKeyword}`);
+      log("info", `[Animeko] 开始搜索 (V0): ${keyword}`);
 
       const searchUrl = `https://api.bgm.tv/v0/search/subjects?limit=5`;
       
       const payload = {
-        keyword: searchKeyword,
+        keyword: keyword,
         filter: {
           type: [2] // 2 代表动画类型
         }
@@ -124,15 +121,8 @@ export default class AnimekoSource extends BaseSource {
    * @returns {Array} 过滤后的结果列表
    */
   filterSearchResults(list, keyword) {
-    const threshold = 0.8; // 相似度阈值
-    
-    // 标准化函数
-    const normalize = (str) => {
-        if (!str) return "";
-        return simplized(str).toLowerCase().replace(/[\p{P}\p{S}\s]/gu, "");
-    };
-
-    const normalizedKeyword = normalize(keyword);
+    const threshold = 0.6; // 相似度阈值
+    const normalizedKeyword = simplized(keyword).toLowerCase().trim();
 
     // 1. 基础相似度过滤 (获取所有潜在相关结果)
     const candidates = list.filter(item => {
@@ -155,8 +145,7 @@ export default class AnimekoSource extends BaseSource {
       // 计算最高相似度得分
       let maxScore = 0;
       for (const t of titles) {
-        // 使用去符号后的文本进行比对
-        const normalizedTitle = normalize(t);
+        const normalizedTitle = simplized(t).toLowerCase().trim();
         const score = this.calculateSimilarity(normalizedKeyword, normalizedTitle);
         if (score > maxScore) maxScore = score;
       }
@@ -364,72 +353,28 @@ export default class AnimekoSource extends BaseSource {
 
   /**
    * 获取剧集列表
-   * Bangumi API 限制单次 limit=200，需循环获取完整列表
    * @param {number} subjectId 条目 ID
    * @returns {Promise<Array>} 剧集数组
    */
   async getEpisodes(subjectId) {
-    let allEpisodes = [];
-    let offset = 0;
-    const limit = 200;
-
     try {
-      while (true) {
-        // 构造分页 URL
-        const url = `https://api.bgm.tv/v0/episodes?subject_id=${subjectId}&limit=${limit}&offset=${offset}`;
-        
-        const resp = await httpGet(url, {
-          headers: this.headers,
-        });
+      const resp = await httpGet(`https://api.bgm.tv/v0/episodes?subject_id=${subjectId}`, {
+        headers: this.headers,
+      });
 
-        // 1. 结构校验：确保 resp.data.data 存在且为数组
-        // 对应您的 JSON: resp.data 存在，resp.data.data 是 [] (数组)，校验通过
-        if (!resp || !resp.data || !Array.isArray(resp.data.data)) {
-          if (offset === 0) {
-             log("info", `[Animeko] Subject ${subjectId} 无剧集数据或响应异常`);
-          }
-          break;
-        }
-
-        const currentBatch = resp.data.data;
-
-        // 2. 空数据校验：如果没有数据，停止
-        // 对应您的 JSON: data 为 []，length 为 0，在此处 break 退出
-        if (currentBatch.length === 0) {
-          break;
-        }
-
-        // 3. 合并数据
-        allEpisodes = allEpisodes.concat(currentBatch);
-        
-        // 打印进度日志
-        if (currentBatch.length === limit) {
-           log("info", `[Animeko] ID:${subjectId} 正加载更多剧集 (当前已获: ${allEpisodes.length})`);
-        }
-
-        // 4. 判断是否还有下一页
-        // 如果当前获取的数量少于限制数量 (例如获取了 2 个，而 limit 是 200)，说明是最后一页
-        if (currentBatch.length < limit) {
-          break;
-        }
-
-        // 5. 准备下一页
-        offset += limit;
-
-        // 6. 安全熔断：防止API异常导致死循环
-        if (offset > 1600) {
-            log("warn", `[Animeko] ID:${subjectId} 剧集数量超过安全限制(1600)，停止翻页`);
-            break;
-        }
+      if (!resp || !resp.data) {
+        log("info", `[Animeko] Subject ${subjectId} 无剧集数据`);
+        return [];
       }
 
-      return allEpisodes;
-
+      const body = resp.data;
+      if (Array.isArray(body.data)) return body.data;
+      
+      return [];
     } catch (error) {
       log("error", "[Animeko] GetEpisodes error:", {
         message: error.message,
-        id: subjectId,
-        offset: offset
+        id: subjectId
       });
       return [];
     }
@@ -512,68 +457,28 @@ export default class AnimekoSource extends BaseSource {
 
   /**
    * 获取完整弹幕列表
-   * 支持自动降级：Global -> CN
+   * 支持传入纯数字ID或完整URL
    * @param {string} episodeId 剧集 ID 或 完整 API URL
    * @returns {Promise<Array>} 弹幕数组
    */
   async getEpisodeDanmu(episodeId) {
-    // 1. 提取真实 ID
-    // 兼容分片请求传递过来的完整 URL 或 纯 ID
-    let realId = String(episodeId).trim();
-    
-    // 如果是完整 URL (包含 /)，尝试提取最后一部分
-    if (realId.includes('/')) {
-      const parts = realId.split('/');
-      realId = parts[parts.length - 1]; 
-    }
-    
-    // 去除可能存在的 URL 参数干扰 (例如 ?v=1)
-    if (realId.includes('?')) {
-      realId = realId.split('?')[0];
-    }
-    
-    if (!realId) {
-      log("error", "[Animeko] 无效的 episodeId");
+    try {
+      // 兼容分片请求传递过来的完整 URL
+      const url = episodeId.startsWith('http') 
+        ? episodeId 
+        : `https://danmaku-global.myani.org/v1/danmaku/${episodeId}`;
+        // 目前使用的服务器是全球区域的，备用大陆区域：https://danmaku-cn.myani.org
+
+      const resp = await httpGet(url, { headers: this.headers });
+
+      if (!resp || !resp.data) return [];
+      const body = resp.data;
+      if (body.danmakuList) return body.danmakuList;
+      return [];
+    } catch (error) {
+      log("error", "[Animeko] GetDanmu error:", { message: error.message, url: episodeId });
       return [];
     }
-
-    const HOST_GLOBAL = "https://danmaku-global.myani.org";
-    const HOST_CN = "https://danmaku-cn.myani.org";
-
-    // 定义内部通用请求函数
-    const fetchDanmu = async (hostUrl) => {
-      const targetUrl = `${hostUrl}/v1/danmaku/${realId}`;
-      try {
-        const resp = await httpGet(targetUrl, { headers: this.headers });
-        
-        if (!resp || !resp.data) return null;
-        
-        const body = resp.data;
-        if (body.danmakuList) return body.danmakuList;
-        return null;
-      } catch (error) {
-        log("warn", `[Animeko] 请求节点失败: ${hostUrl} - ${error.message}`);
-        return null;
-      }
-    };
-
-    // 2. 优先尝试 Global 节点
-    let danmuList = await fetchDanmu(HOST_GLOBAL);
-
-    // 3. 如果失败，降级尝试 CN 节点
-    if (!danmuList) {
-      log("info", `[Animeko] Global 节点获取失败/无数据，降级尝试 CN 节点... ID:${realId}`);
-      danmuList = await fetchDanmu(HOST_CN);
-    }
-
-    // 4. 返回结果或空数组
-    if (danmuList) {
-      log("info", `[Animeko] 成功获取弹幕，共 ${danmuList.length} 条`);
-      return danmuList;
-    }
-
-    log("error", "[Animeko] 所有节点尝试均失败，无法获取弹幕");
-    return [];
   }
 
   /**
@@ -587,7 +492,7 @@ export default class AnimekoSource extends BaseSource {
         "type": "animeko",
         "segment_start": 0,
         "segment_end": 30000, 
-        "url": String(id)
+        "url": `https://danmaku-global.myani.org/v1/danmaku/${id}` // 使用完整 URL
       }]
     });
   }
