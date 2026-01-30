@@ -72,7 +72,7 @@ const RE_NON_ALPHANUM_CN = /[^\u4e00-\u9fa5a-zA-Z0-9]/g;
 // cleanEpisodeText 相关正则 (集标题清洗)
 const RE_EP_SUFFIX_DIGIT = /_\d+(?=$|\s)/g;
 const RE_FILE_NOISE = /_(\d{2,4})(?=\.)/g;
-const RE_EP_SEASON_PREFIX = /(?:^|\s)(?:第\d+季|S\d+)(?:\s+|_)/gi;
+const RE_EP_SEASON_PREFIX = /(?:^|\s)(?:第[0-9一二三四五六七八九十]+季|S[0-9]+)(?:\s+|_)/gi;
 const RE_LANG_CN_STD = /普通话|国语/g;
 const RE_LANG_JP_STD = /原声|原版/g;
 const RE_EP_PUNCTUATION = /[!！?？,，.。、~～:：\-–—]/g;
@@ -107,7 +107,7 @@ const RE_PV_CHECK = /(pv|trailer|预告)/i;
 const RE_SPECIAL_CHECK = /^(s|o|sp|special)\d/i;
 const RE_EP_SEASON_MATCH = /(?:^|\s)(?:第|S)(\d+)[季S]/i;
 const RE_EP_NUM_STRATEGY_A = /(?:第|s)(\d+)[季s].*?(?:第|ep|e)(\d+)/i;
-const RE_EP_NUM_STRATEGY_B = /(?:ep|o|s|part|第)\s*(\d+(\.\d+)?)/i;
+const RE_EP_NUM_STRATEGY_B = /(?:ep|o|s|part|第)\s*(\d+(\.\d+)?)(?!\s*[季期部])/i;
 const RE_EP_NUM_STRATEGY_C = /(?:^|\s)(\d+(\.\d+)?)(?:话|集|\s|$)/;
 
 // getContentCategory 相关 (内容分类)
