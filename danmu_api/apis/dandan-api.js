@@ -545,8 +545,6 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
     let currentScore = 0;
     if (platform) {
         currentScore = getPlatformMatchScore(actualPlatform, platform);
-        // 得分为0表示不匹配
-        if (currentScore === 0) continue; 
         // 如果得分没有超过已有的最佳得分，跳过
         if (currentScore <= bestRes.score) continue; 
     } else {
