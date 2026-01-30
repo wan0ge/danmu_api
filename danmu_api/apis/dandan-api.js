@@ -600,12 +600,16 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
 
     // 4. 更新最佳结果
     if (matchedEpisode) {
-        log("info", `Update best match: ${anime.animeTitle} (Score: ${currentScore})`);
-        bestRes = {
-            anime: anime,
-            episode: matchedEpisode,
-            score: currentScore
-        };
+        // 仅当当前分数 "大于" 最佳分数时才更新
+        // 如果分数相同（例如都是默认分1），则保留先找到的（搜索结果中排名靠前的），防止S07覆盖S01
+        if (bestRes.score === -9999 || currentScore > bestRes.score) {
+            log("info", `Update best match: ${anime.animeTitle} (Score: ${currentScore})`);
+            bestRes = {
+                anime: anime,
+                episode: matchedEpisode,
+                score: currentScore
+            };
+        }
         
         // 计算是否为完美匹配
         const tParts = platform ? platform.split('&').filter(s => s.trim()) : [];
@@ -613,7 +617,7 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
         if (platform && tParts.length === cParts.length && currentScore >= tParts.length * 1000) {
              break;
         }
-    }
+	}
   }
 
   // 循环结束后，返回最佳结果
