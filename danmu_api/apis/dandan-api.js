@@ -399,7 +399,7 @@ function extractEpisodeNumberFromTitle(episodeTitle) {
 }
 
 /**
- * 计算平台匹配得分
+ * 计算平台匹配得分 (新增函数 - 用于支持合并源模糊匹配和杂质过滤)
  * @param {string} candidatePlatform 候选平台字符串 (e.g., "bilibili&dandan")
  * @param {string} targetPlatform 目标配置字符串 (e.g., "bilibili1&dandan")
  * @returns {number} 得分：越高越好，0表示不匹配
@@ -428,8 +428,17 @@ function getPlatformMatchScore(candidatePlatform, targetPlatform) {
   
   if (matchCount === 0) return 0;
 
-  // 评分公式：基于命中数计算权重，其次考虑候选长度
+  // 评分公式：基于命中数计算权重，其次考虑候选长度（越短越好，即杂质越少分越高）
+  // 示例: Target="bilibili"
+  // Candidate="bilibili" -> Match=1, Len=1 -> 1000 - 1 = 999 (Best)
+  // Candidate="animeko&bilibili" -> Match=1, Len=2 -> 1000 - 2 = 998 (Valid but lower score)
   return (matchCount * 1000) - cParts.length;
+}
+
+// 辅助函数：从标题中提取来源平台列表 (新增函数 - 适配合并源标题格式)
+function extractPlatformFromTitle(title) {
+    const match = title.match(/from\s+([a-zA-Z0-9&]+)/i);
+    return match ? match[1] : null;
 }
 
 // 根据集数匹配episode（优先使用集标题中的集数，其次使用episodeNumber，最后使用数组索引）
@@ -437,18 +446,17 @@ function findEpisodeByNumber(filteredEpisodes, targetEpisode, platform = null) {
   if (!filteredEpisodes || filteredEpisodes.length === 0) {
     return null;
   }
-
-  // 如果指定了平台，先过滤出该平台的集数 (使用 getPlatformMatchScore 支持模糊匹配)
+  
+  // 如果指定了平台，先过滤出该平台的集数 (修改点：使用 getPlatformMatchScore 支持模糊匹配)
   let platformEpisodes = filteredEpisodes;
   if (platform) {
     platformEpisodes = filteredEpisodes.filter(ep => {
         const epTitlePlatform = extractEpisodeTitle(ep.episodeTitle);
-        // 使用评分机制判断是否匹配
+        // 使用评分机制判断是否匹配，只要有分就保留
         return getPlatformMatchScore(epTitlePlatform, platform) > 0;
     });
   }
-
-  // 如果过滤后为空，返回null
+  
   if (platformEpisodes.length === 0) {
     return null;
   }
@@ -480,12 +488,6 @@ function findEpisodeByNumber(filteredEpisodes, targetEpisode, platform = null) {
   return null;
 }
 
-// 辅助函数：从标题中提取来源平台列表
-function extractPlatformFromTitle(title) {
-    const match = title.match(/from\s+([a-zA-Z0-9&]+)/i);
-    return match ? match[1] : null;
-}
-
 async function matchAniAndEp(season, episode, year, searchData, title, req, platform, preferAnimeId) {
   // 定义最佳匹配结果容器
   let bestRes = {
@@ -499,12 +501,12 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
   // 遍历所有搜索结果，寻找最佳匹配
   for (const anime of searchData.animes) {
     // 偏好过滤
-    const animeIsPrefer = 
-      globals.rememberLastSelect && 
-      preferAnimeId && 
-      String(anime.bangumiId) !== String(preferAnimeId) && 
-      String(anime.animeId) !== String(preferAnimeId);
-    if (animeIsPrefer) continue;
+    const animeIsNotPrefer = 
+        globals.rememberLastSelect && 
+        preferAnimeId && 
+        String(anime.bangumiId) !== String(preferAnimeId) && 
+        String(anime.animeId) !== String(preferAnimeId);
+    if (animeIsNotPrefer) continue;
 
     let isMatch = false;
 
@@ -518,7 +520,14 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
                 continue;
             }
 
-            if (matchSeason(anime, title, season) || !animeIsPrefer) {
+            // 年份匹配通过后，再判断season
+            const animeIsPrefer = 
+              globals.rememberLastSelect && 
+              preferAnimeId && 
+              (String(anime.bangumiId) === String(preferAnimeId) || 
+              String(anime.animeId) === String(preferAnimeId));
+
+            if (matchSeason(anime, title, season) || animeIsPrefer) {
                 isMatch = true;
             }
         }
@@ -537,30 +546,13 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
 
     if (!isMatch) continue;
 
-    // 2. 平台匹配得分计算
-    // 优先从标题的 'from xxx' 中提取完整合并源，如果提取不到则回退到 source 字段
-    const actualPlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
-    
-    // 如果指定了 platform 且得分不高于当前最高分，跳过后续请求
-    let currentScore = 0;
-    if (platform) {
-        currentScore = getPlatformMatchScore(actualPlatform, platform);
-        // 如果得分没有超过已有的最佳得分，跳过
-        if (currentScore <= bestRes.score) continue; 
-    } else {
-        // 如果没指定 platform，则默认优先级最低
-        currentScore = 1; 
-        // 如果已有更好结果，跳过
-        if (bestRes.score > 1) continue;
-    }
-
-    // 3. 获取剧集详情
+    // 2. 获取剧集详情 (无条件获取，确保数据完整性)
     let originBangumiUrl = new URL(req.url.replace("/match", `bangumi/${anime.bangumiId}`));
     const bangumiRes = await getBangumi(originBangumiUrl.pathname);
     const bangumiData = await bangumiRes.json();
     
     // 输出匹配分数及原始数据日志
-    log("info", "判断剧集", `Anime: ${anime.animeTitle}, Score: ${currentScore}`);
+    log("info", "判断剧集", `Anime: ${anime.animeTitle}`);
     log("info", bangumiData);
 
     let matchedEpisode = null;
@@ -574,7 +566,7 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
         
         log("info", "过滤后的集标题", filteredEpisodes.map(episode => episode.episodeTitle));
 
-        // 匹配集数
+        // 匹配集数 (注意：findEpisodeByNumber 已增强支持模糊平台匹配)
         matchedEpisode = findEpisodeByNumber(filteredEpisodes, episode, platform);
     } else {
         // 电影模式逻辑
@@ -589,36 +581,46 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
                 if (targetEp) {
                     matchedEpisode = targetEp;
                 }
-                // 若指定平台但未找到对应资源，matchedEpisode 为 null，循环继续寻找下一番剧
             } else {
                 matchedEpisode = bangumiData.bangumi.episodes[0];
             }
         }
     }
 
-    // 4. 更新最佳结果
+    // 3. 匹配结果处理与评分比较
     if (matchedEpisode) {
-        // 仅当当前分数 "大于" 最佳分数时才更新
-        // 如果分数相同（例如都是默认分1），则保留先找到的（搜索结果中排名靠前的），防止S07覆盖S01
-        if (bestRes.score === -9999 || currentScore > bestRes.score) {
-            log("info", `Update best match: ${anime.animeTitle} (Score: ${currentScore})`);
-            bestRes = {
+        // 计算当前匹配的得分
+        const actualPlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
+        let currentScore = 0;
+        
+        if (platform) {
+            // 如果指定了平台偏好，计算匹配得分
+            currentScore = getPlatformMatchScore(actualPlatform, platform);
+        } else {
+            // 如果没有指定平台偏好，默认为 1
+            currentScore = 1;
+        }
+
+        // 比较并更新最佳结果
+        // 逻辑：如果有更好的分数，或者之前没有匹配到任何结果，则更新
+        if (currentScore > bestRes.score) {
+             bestRes = {
                 anime: anime,
                 episode: matchedEpisode,
                 score: currentScore
             };
         }
-        
-        // 计算是否为完美匹配
-        const tParts = platform ? platform.split('&').filter(s => s.trim()) : [];
-        const cParts = actualPlatform.split('&').filter(s => s.trim());
-        if (platform && tParts.length === cParts.length && currentScore >= tParts.length * 1000) {
-             break;
+
+        // 如果没有指定平台偏好 (platform 为空)，则保持原版行为：
+        // 找到第一个符合条件的就立刻返回，不进行后续比较
+        if (!platform) {
+            break; 
         }
-	}
+        
+        // 如果指定了平台偏好，则继续循环查找是否有得分更高的源（最小杂质匹配）
+    }
   }
 
-  // 循环结束后，返回最佳结果
   return { resEpisode: bestRes.episode, resAnime: bestRes.anime };
 }
 
