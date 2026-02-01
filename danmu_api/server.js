@@ -7,7 +7,7 @@ import https from 'https';
 import zlib from 'zlib';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import dotenv from 'dotenv';
-import fetch, { Request, Response } from 'node-fetch';
+import { Request as NodeFetchRequest } from 'node-fetch';
 import { handleRequest } from './worker.js';
 
 // =====================
@@ -30,10 +30,6 @@ const envPath = path.join(configDir, '.env');
 // 保存系统环境变量的副本，确保它们具有最高优先级
 const systemEnvBackup = { ...process.env };
 
-// 强制使用 node-fetch 覆盖全局变量，确保不同 Node 版本下行为一致且无警告
-global.Request = Request;
-global.Response = Response;
-global.fetch = fetch;
 
 // 引入 zlib 模块，用于响应数据的 GZIP 压缩
 // (注：zlib 已在顶部 import，此处保留原版注释意图说明)
@@ -296,7 +292,7 @@ function createServer() {
       }
 
       // 创建一个 Web API 兼容的 Request 对象
-      const webRequest = new Request(fullUrl, {
+      const webRequest = new NodeFetchRequest(fullUrl, {
         method: req.method,
         headers: req.headers,
         body: body || undefined, // 对于 GET/HEAD 等请求，body 为 undefined
