@@ -454,7 +454,7 @@ function createProxyServer() {
  * 启动主业务服务器和代理服务器
  */
 async function startServer() {
-  console.log('[server] Starting server in ESM mode...');
+  console.log('[server] Starting server...');
 
   // 设置 .env 文件监听
   await setupEnvWatcher();
