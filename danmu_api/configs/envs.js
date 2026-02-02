@@ -153,8 +153,9 @@ export class Envs {
    * 从环境变量 MERGE_SOURCE_PAIRS 获取配置
    * 支持使用分号或逗号分隔多组配置
    * 支持一主多从配置，第一个为主源，后续为副源
-   * 格式示例: bilibili&animeko, dandan&animeko&bahamut
-   * @returns {Array} 合并配置数组 [{primary: 'dandan', secondaries: ['animeko', 'bahamut']}, ...]
+   * 允许单源配置（用于保留特定源的原始结果，不被合并消耗）
+   * 格式示例: bilibili&animeko, dandan&animeko&bahamut,dandan
+   * @returns {Array} 合并配置数组 [{primary: 'dandan', secondaries: ['animeko', 'bahamut']}, {primary: 'renren', secondaries: []}]
    */
   static resolveMergeSourcePairs() {
     const config = this.get('MERGE_SOURCE_PAIRS', '', 'string');
@@ -164,12 +165,13 @@ export class Envs {
     return config.split(/[,;]/)
       .map(group => {
         // 过滤空字符串
-        if (!group || !group.includes('&')) return null;
+        if (!group) return null;
         
         // 按 & 分割，第一个是主源，剩余的是副源列表
         const parts = group.split('&').map(s => s.trim()).filter(s => s);
         
-        if (parts.length < 2) return null;
+        // 允许单源配置 (length >= 1)
+        if (parts.length < 1) return null;
 
         const primary = parts[0];
         const secondaries = parts.slice(1);
@@ -181,8 +183,6 @@ export class Envs {
         const validSecondaries = secondaries.filter(sec => 
             sec !== primary && this.MERGE_ALLOWED_SOURCES.includes(sec)
         );
-
-        if (validSecondaries.length === 0) return null;
 
         return { primary, secondaries: validSecondaries };
       })
