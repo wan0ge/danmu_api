@@ -394,7 +394,7 @@ function renderValueInput(item) {
         // 布尔开关
         // 对于LIKE_SWITCH变量，默认值设为true（开启状态）
         let checked;
-        if (currentKey === 'LIKE_SWITCH' || currentKey === 'REMEMBER_LAST_SELECT') {
+        if (currentKey === 'LIKE_SWITCH' || currentKey === 'REMEMBER_LAST_SELECT' || currentKey === 'REAL_TIME_PULL_DANDAN') {
             // 如果值为空或未定义，LIKE_SWITCH和REMEMBER_LAST_SELECT默认为true（开启）
             checked = value === 'true' || value === true || (value === '' || value === undefined || value === null);
         } else {
