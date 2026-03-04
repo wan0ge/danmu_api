@@ -216,8 +216,6 @@ const SEASON_PATTERNS = [
   { regex: /[^0-9](\d)$/, prefix: 'S', useCleaned: true } 
 ];
 
-const NORMALIZE_REGEX = /[\s\u3000-\u303f\uff00-\uffef]/g;
-
 // ==========================================
 // 3. 基础文本处理工具 (Utilities)
 // ==========================================
@@ -2496,25 +2494,4 @@ function getDanmuTime(danmu) {
     return danmu.progress / 1000;
   }
   return 0;
-}
-  
-/**
- * 获取弹幕文本，兼容 dandan (m) 与其他源 (content)
- * @param {Object} danmu
- * @returns {string}
- */
-function getDanmuText(danmu) {
-  if (typeof danmu.m === 'string') return danmu.m;
-  if (typeof danmu.content === 'string') return danmu.content;
-  return '';
-}
-  
-/**
- * 文本标准化：去除空格、标点、转小写
- * @param {string} text
- * @returns {string}
- */
-function normalizeText(text) {
-  if (typeof text !== 'string') return '';
-  return text.replace(NORMALIZE_REGEX, '').toLowerCase();
 }
