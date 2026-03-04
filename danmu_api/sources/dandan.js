@@ -350,14 +350,18 @@ export default class DandanSource extends BaseSource {
         retries: 1,
       }).catch(e => { log('error', `dandan base comments error: ${e.message}`); return null; });
 
-      // 获取 related 关联数据
-      const relatedPromise = httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=/v2/related/${id}`, {
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        },
-        retries: 1,
-      }).catch(e => { log('error', `dandan related data error: ${e.message}`); return null; });
+      // 根据功能开关决定是否请求 related 关联数据，避免未开启功能时产生无效的网络开销
+      // 判定条件：全局开启了实时拉取，或全局开启了合并功能，或当前请求明确处于合并管线中
+      let relatedPromise = Promise.resolve(null);
+      if (globals.realTimePullDandan || (globals.mergeSourcePairs && globals.mergeSourcePairs.length > 0) || (mergedSources && mergedSources.length > 0)) {
+        relatedPromise = httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=/v2/related/${id}`, {
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          },
+          retries: 1,
+        }).catch(e => { log('error', `dandan related data error: ${e.message}`); return null; });
+      }
 
       const [resp, relatedResp] = await Promise.all([dandanPromise, relatedPromise]);
 
