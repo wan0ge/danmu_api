@@ -2493,6 +2493,5 @@ function getDanmuTime(danmu) {
   if (typeof danmu.progress === 'number') {
     return danmu.progress / 1000;
   }
-  
   return 0;
 }
