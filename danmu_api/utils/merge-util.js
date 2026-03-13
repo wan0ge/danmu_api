@@ -205,14 +205,14 @@ const SUFFIX_SPECIFIC_MAP = [
 ];
 
 const SEASON_PATTERNS = [
-  { regex: /(?:第)?(\d+)(?:季|期|部(?!分))/, prefix: 'S' }, 
-  { regex: /season\s*(\d+)/, prefix: 'S' }, 
-  { regex: /s(\d+)/, prefix: 'S' },         
-  { regex: /part\s*(\d+)/, prefix: 'P' },   
-  { regex: /(ova|oad)/, val: 'OVA' },
-  { regex: /(剧场版|the\s*movie|theatrical|movie|film|电影)/, val: 'MOVIE' },
+  { regex: /(?:第)?(\d+)(?:季|期|部(?!分))/, prefix: 'S' },
+  { regex: /\bseason\s*(\d+)/i, prefix: 'S' },
+  { regex: /\bs\s*(\d+)\b/i, prefix: 'S' },
+  { regex: /\bpart\s*(\d+)/i, prefix: 'P' },
+  { regex: /\b(ova|oad)\d*\b/i, val: 'OVA' },
+  { regex: /(剧场版|the\s*movie|theatrical|movie|film|电影)/i, val: 'MOVIE' },
   { regex: /(续篇|续集)/, val: 'SEQUEL' },
-  { regex: /sp/, val: 'SP' },
+  { regex: /\b(sp|special)\d*\b/i, val: 'SP' },
   { regex: /[^0-9](\d)$/, prefix: 'S', useCleaned: true } 
 ];
 
@@ -560,8 +560,8 @@ function extractSeasonMarkers(title, typeDesc = '') {
   }
   if (RegexStore.Season.SUFFIX_SEQUEL.test(t) || type.includes('续篇')) markers.add('SEQUEL');
   if (type.includes('剧场版') || type.includes('movie') || type.includes('film') || type.includes('电影')) markers.add('MOVIE');
-  if (type.includes('ova') || type.includes('oad')) markers.add('OVA');
-  if (type.includes('sp') || type.includes('special')) markers.add('SP');
+  if (/\b(ova|oad)\b/i.test(type)) markers.add('OVA');
+  if (/\b(sp|special)\b/i.test(type)) markers.add('SP');
   const cnNums = {'一':1, '二':2, '三':3, '四':4, '五':5, 'final': 99};
   for (const [cn, num] of Object.entries(cnNums)) {
     if (t.includes(`第${cn}季`)) markers.add(`S${num}`);
@@ -1133,19 +1133,43 @@ function extractEpisodeInfo(title, sourceName = '') {
 
 /**
  * 过滤无效剧集 (基于标题正则)
- * @param {Array} links 
- * @param {RegExp} filterRegex 
- * @returns {Array}
+ * 特定高置信度源跳过正则过滤，防止常规集数因命中全局正则而丢失
+ * @param {Array} links 集数对象列表
+ * @param {RegExp} filterRegex 过滤正则
+ * @param {string} [sourceName=''] 来源平台名称
+ * @returns {Array} 携带原始索引的过滤后列表
  */
-function filterEpisodes(links, filterRegex) {
+function filterEpisodes(links, filterRegex, sourceName = '') {
   if (!links) return [];
-  if (!filterRegex) return links.map((link, index) => ({ link, originalIndex: index }));
-  return links
-    .map((link, index) => ({ link, originalIndex: index }))
-    .filter(item => {
-      const title = item.link.title || item.link.name || "";
-      return !filterRegex.test(title);
-    });
+  
+  // 特定源白名单：这些源的集标题通常比较规范，免除正则过滤拦截
+  const skipFilterSources = ['animeko', 'bilibili', 'bilibili1', 'bahamut', 'dandan'];
+  const shouldSkipFilter = skipFilterSources.includes(sourceName);
+
+  if (!filterRegex || shouldSkipFilter) {
+    return links.map((link, index) => ({ link, originalIndex: index }));
+  }
+  
+  const validLinks = [];
+  const droppedTitles = [];
+
+  // 遍历并拦截命中规则的条目
+  links.forEach((link, index) => {
+    const title = link.title || link.name || "";
+    if (filterRegex.test(title)) {
+      droppedTitles.push(title);
+    } else {
+      validLinks.push({ link, originalIndex: index });
+    }
+  });
+
+  // 集中输出被过滤的条目日志
+  if (droppedTitles.length > 0) {
+    const sourcePrefix = sourceName ? `[${sourceName}] ` : '';
+    log("info", `[Merge-Check] ${sourcePrefix}命中EPISODE_TITLE_FILTER过滤，已前置剔除 ${droppedTitles.length} 集: ${droppedTitles.join(', ')}`);
+  }
+
+  return validLinks;
 }
 
 /**
@@ -1533,7 +1557,7 @@ function buildSeasonLengthMap(allGroupAnimes, epFilter, collectionAnimeIds) {
 
         const seasonNum = getSeasonNumber(realAnime.animeTitle, realAnime.typeDescription);
         if (seasonNum !== null && realAnime.links) {
-            const validLinks = filterEpisodes(realAnime.links, epFilter).filter(item => {
+            const validLinks = filterEpisodes(realAnime.links, epFilter, realAnime.source).filter(item => {
                 const title = item.link.title || item.link.name || "";
                 const cleanT = cleanText(title);
                 const rawTemp = cleanT.replace(RegexStore.Clean.SOURCE_TAG, '').replace(RegexStore.Clean.FROM_SUFFIX, '').trim();
@@ -1641,8 +1665,9 @@ async function processMergeTask(params) {
         limitSecondaryLang, collectionAnimeIds, allowReuseIds, collectionProgress
     } = params;
 
-    if (collectionAnimeIds.has(pAnime.animeId) && globalConsumedIds.has(pAnime.animeId)) {
-        log("info", `${logPrefix} 跳过: [${currentPrimarySource}] 是合集且已作为副源参与过合并。`);
+    // 在一组中是合集且已作为副源参与过合并就跳过，另一组相互独立互不干扰。
+    if (collectionAnimeIds.has(pAnime.animeId) && groupConsumedIds.has(pAnime.animeId)) {
+        log("info", `${logPrefix} 跳过: [${currentPrimarySource}] 是合集且已作为组内副源参与过合并。`);
         return null;
     }
 
@@ -1707,29 +1732,29 @@ async function processMergeTask(params) {
             const isReuse = allowReuseIds && allowReuseIds.has(match.animeId);
             if (!isReuse && groupConsumedIds.has(match.animeId)) continue;
 
-            const cachedMatch = globals.animes.find(a => String(a.animeId) === String(match.animeId));
-            if (!cachedMatch?.links) continue;
+            const globalCachedMatch = globals.animes.find(a => String(a.animeId) === String(match.animeId));
+            if (!globalCachedMatch?.links) continue;
+            const derivedMatch = fastCloneAnime(globalCachedMatch);
 
             const mappingEntries = [], matchedPIndices = new Set(), pendingMutations = [], orphanedEpisodes = []; 
-            const logTitleB = cachedMatch.animeTitle.replace(RegexStore.Clean.FROM_SUFFIX, '');
+            const logTitleB = derivedMatch.animeTitle.replace(RegexStore.Clean.FROM_SUFFIX, '');
 
             const decimalsP = getDecimalEpisodes(derivedAnime.links, currentPrimarySource);
-            const decimalsS = getDecimalEpisodes(cachedMatch.links, secSource);
+            const decimalsS = getDecimalEpisodes(derivedMatch.links, secSource);
             const toSinkS = new Set([...decimalsS].filter(x => !decimalsP.has(x)));
             const toSinkP = new Set([...decimalsP].filter(x => !decimalsS.has(x)));
             
             if (toSinkP.size > 0) sinkDecimalEpisodes(derivedAnime.links, toSinkP, currentPrimarySource, `主源:${currentPrimarySource}`);
             
-            let currentSecondaryLinks = cachedMatch.links;
             if (toSinkS.size > 0) {
-                currentSecondaryLinks = [...cachedMatch.links]; 
-                sinkDecimalEpisodes(currentSecondaryLinks, toSinkS, secSource, `副源:${secSource}`);
+                sinkDecimalEpisodes(derivedMatch.links, toSinkS, secSource, `副源:${secSource}`);
             }
+            let currentSecondaryLinks = derivedMatch.links;
 
-            const filteredPLinksWithIndex = filterEpisodes(derivedAnime.links, epFilter);
-            const filteredMLinksWithIndex = filterEpisodes(currentSecondaryLinks, epFilter);
+            const filteredPLinksWithIndex = filterEpisodes(derivedAnime.links, epFilter, currentPrimarySource);
+            const filteredMLinksWithIndex = filterEpisodes(currentSecondaryLinks, epFilter, secSource);
 
-            const seriesLangB = getLanguageType(cachedMatch.animeTitle);
+            const seriesLangB = getLanguageType(derivedMatch.animeTitle);
             let activePLinks = filteredPLinksWithIndex, activeMLinks = filteredMLinksWithIndex;
             let sliceStartP = 0, sliceStartS = 0;
             const isSecondaryCollection = collectionAnimeIds.has(match.animeId);
@@ -1790,7 +1815,7 @@ async function processMergeTask(params) {
             };
 
             if (isPrimaryCollection && !isSecondaryCollection) {
-                const secSeason = getSeasonNumber(cachedMatch.animeTitle, cachedMatch.typeDescription);
+                const secSeason = getSeasonNumber(derivedMatch.animeTitle, derivedMatch.typeDescription);
                 const res = performSlicing(true, filteredPLinksWithIndex, secSeason);
                 activePLinks = res.slicedList; sliceStartP = res.sliceStart;
             } else if (!isPrimaryCollection && isSecondaryCollection) {
@@ -1799,7 +1824,7 @@ async function processMergeTask(params) {
                 activeMLinks = res.slicedList; sliceStartS = res.sliceStart;
             }
 
-            const bestOffsetLocal = findBestAlignmentOffset(activePLinks, activeMLinks, seriesLangA, seriesLangB, currentPrimarySource, secSource, pAnime.animeTitle, cachedMatch.animeTitle);
+            const bestOffsetLocal = findBestAlignmentOffset(activePLinks, activeMLinks, seriesLangA, seriesLangB, currentPrimarySource, secSource, pAnime.animeTitle, derivedMatch.animeTitle);
             const offset = bestOffsetLocal + sliceStartP - sliceStartS;
             if (offset !== 0) log("info", `${logPrefix} 集数自动对齐 (${secSource}): Offset=${offset} (P:${filteredPLinksWithIndex.length}, S:${filteredMLinksWithIndex.length})`);
 
@@ -1807,7 +1832,7 @@ async function processMergeTask(params) {
             derivedAnime.bangumiId = String(derivedAnime.animeId);
 
             let mergedCount = 0;
-            const redundantS = identifyRedundantTitle(cachedMatch.links, cachedMatch.animeTitle, secSource);
+            const redundantS = identifyRedundantTitle(derivedMatch.links, derivedMatch.animeTitle, secSource);
 
             for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
               const pIndex = k + offset; 
@@ -1818,11 +1843,6 @@ async function processMergeTask(params) {
               const orphanItem = { link: sourceLink, originalIndex: sourceLinkItem.originalIndex, relativeIndex: pIndex, info: null };
               const cleanTitleS = getTempTitle(sourceLink.title, redundantS);
               orphanItem.info = extractEpisodeInfo(cleanTitleS, secSource);
-
-              if (epFilter && epFilter.test(sTitleShort)) {
-                  mappingEntries.push({ idx: pIndex, text: `   [略过] ${sTitleShort} (命中PV/预告过滤器)` });
-                  continue;
-              }
               
               if (pIndex >= 0 && pIndex < filteredPLinksWithIndex.length) {
                 const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
@@ -1953,7 +1973,7 @@ async function processMergeTask(params) {
         const signature = contentSignatureParts.join('|');
         if (generatedSignatures.has(signature)) {
              log("info", `${logPrefix} 检测到重复的合并结果 (Signature: ${signature})，已自动隐去冗余条目。`);
-             return derivedAnime; 
+             return null; 
         }
         generatedSignatures.add(signature);
         const joinedSources = actualMergedSources.join(DISPLAY_CONNECTOR);
@@ -2227,14 +2247,14 @@ export async function applyMergeLogic(curAnimes) {
     // 注意：此处策略稍微放宽，允许列表中所有 CN 源作为发起方尝试匹配，只要它们还没被消费
     const cnCandidates = [];
     fullPriorityList.forEach(source => {
-       const items = curAnimes.filter(a => a.source === source && !globalConsumedIds.has(a.animeId) && getLanguageType(a.animeTitle) === 'CN');
+       const items = curAnimes.filter(a => a.source === source && !groupConsumedIds.has(a.animeId) && getLanguageType(a.animeTitle) === 'CN');
        items.forEach(item => cnCandidates.push(item));
     });
 
     // 检查副源池中是否有 CN 资源，如果没有则跳过 Phase 1
     let hasCnInSecondaries = false;
     for (const secSrc of fullPriorityList) {
-         if (curAnimes.some(a => a.source === secSrc && !globalConsumedIds.has(a.animeId) && getLanguageType(a.animeTitle) === 'CN')) {
+         if (curAnimes.some(a => a.source === secSrc && !groupConsumedIds.has(a.animeId) && getLanguageType(a.animeTitle) === 'CN')) {
              hasCnInSecondaries = true;
              break;
          }
@@ -2246,7 +2266,6 @@ export async function applyMergeLogic(curAnimes) {
 
         for (const pAnime of cnCandidates) {
             if (groupConsumedIds.has(pAnime.animeId)) continue;
-            if (globalConsumedIds.has(pAnime.animeId)) continue;
 
             const currentPriorityIdx = sourcePriorityMap.get(pAnime.source);
             const availableSecondaries = fullPriorityList.slice(currentPriorityIdx + 1);
@@ -2272,7 +2291,7 @@ export async function applyMergeLogic(curAnimes) {
     // 从第二个源开始扫描，因为主源已经在 Phase 1 尝试过了
     for (let i = 1; i < fullPriorityList.length; i++) {
         const source = fullPriorityList[i];
-        const items = curAnimes.filter(a => a.source === source && !globalConsumedIds.has(a.animeId) && getLanguageType(a.animeTitle) === 'CN');
+        const items = curAnimes.filter(a => a.source === source && !groupConsumedIds.has(a.animeId) && getLanguageType(a.animeTitle) === 'CN');
         items.forEach(item => secondaryCnCandidates.push(item));
     }
 
@@ -2282,7 +2301,6 @@ export async function applyMergeLogic(curAnimes) {
 
          for (const tAnime of secondaryCnCandidates) {
              if (groupConsumedIds.has(tAnime.animeId)) continue;
-             if (globalConsumedIds.has(tAnime.animeId)) continue;
 
              const currentPriorityIdx = sourcePriorityMap.get(tAnime.source);
              const availableSecondaries = fullPriorityList.slice(currentPriorityIdx + 1);
@@ -2305,7 +2323,7 @@ export async function applyMergeLogic(curAnimes) {
     // 处理剩余的所有资源（包含非 CN 资源以及 Phase 1/1.5 未匹配的 CN 资源）
     const remainingCandidates = [];
     fullPriorityList.forEach(source => {
-       const items = curAnimes.filter(a => a.source === source && !globalConsumedIds.has(a.animeId));
+       const items = curAnimes.filter(a => a.source === source && !groupConsumedIds.has(a.animeId));
        items.forEach(item => remainingCandidates.push(item));
     });
 
@@ -2315,7 +2333,6 @@ export async function applyMergeLogic(curAnimes) {
 
         for (const pAnime of remainingCandidates) {
             if (groupConsumedIds.has(pAnime.animeId)) continue;
-            if (globalConsumedIds.has(pAnime.animeId)) continue;
 
             const currentPriorityIdx = sourcePriorityMap.get(pAnime.source);
             const availableSecondaries = fullPriorityList.slice(currentPriorityIdx + 1);
@@ -2354,6 +2371,7 @@ export async function applyMergeLogic(curAnimes) {
     }
   } 
 
+  // 将所有合法衍生出来的合并对象推入主列表
   if (newMergedAnimes.length > 0) {
      for (const anime of newMergedAnimes) addAnime(anime);
      curAnimes.unshift(...newMergedAnimes);
@@ -2366,6 +2384,7 @@ export async function applyMergeLogic(curAnimes) {
       }
   }
   
+  // 最终清理：移除已被任意一组所消费的单源原始资源
   for (let i = curAnimes.length - 1; i >= 0; i--) {
     const item = curAnimes[i];
     if (item._isMerged || globalConsumedIds.has(item.animeId)) curAnimes.splice(i, 1);
