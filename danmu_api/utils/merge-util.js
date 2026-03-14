@@ -1958,9 +1958,6 @@ async function processMergeTask(params) {
                       derivedAnime.links = [...normals, ...sinkers];
                       log("info", `${logPrefix} [排序优化] 立即执行番外沉底: 移动了 ${sinkers.length} 个番外集到末尾`);
                   }
-                  if (!collectionAnimeIds.has(match.animeId)) groupConsumedIds.add(match.animeId);
-                  else log("info", `${logPrefix} 合集保留: [${secSource}] ${logTitleB} 是合集，保留以供同组复用。`);
-                  globalConsumedIds.add(match.animeId);
                   hasMergedAny = true;
                   actualMergedSources.push(secSource);
                   contentSignatureParts.push(match.animeId);
@@ -1973,14 +1970,25 @@ async function processMergeTask(params) {
         const signature = contentSignatureParts.join('|');
         if (generatedSignatures.has(signature)) {
              log("info", `${logPrefix} 检测到重复的合并结果 (Signature: ${signature})，已自动隐去冗余条目。`);
-             return null; 
+             return null;
         }
         generatedSignatures.add(signature);
+        
+        for (let i = 1; i < contentSignatureParts.length; i++) {
+            const secId = contentSignatureParts[i];
+            if (!collectionAnimeIds.has(secId)) {
+                groupConsumedIds.add(secId);
+            } else {
+                log("info", `${logPrefix} 合集保留: ID [${secId}] 是合集，保留以供同组复用。`);
+            }
+            globalConsumedIds.add(secId);
+        }
+
         const joinedSources = actualMergedSources.join(DISPLAY_CONNECTOR);
         derivedAnime.animeTitle = derivedAnime.animeTitle.replace(`from ${currentPrimarySource}`, `from ${currentPrimarySource}${DISPLAY_CONNECTOR}${joinedSources}`);
         derivedAnime.source = currentPrimarySource;
         return derivedAnime;
-    } 
+    }
     return null;
 }
 
