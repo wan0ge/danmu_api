@@ -424,10 +424,10 @@ export default class BahamutSource extends BaseSource {
     const positionToMode = { 0: 1, 1: 5, 2: 4 };
     return comments.map(c => ({
       cid: Number(c.sn),
-      p: `${Math.round(c.time / 10).toFixed(2)},${positionToMode[c.position] || c.tp},${parseInt(c.color.slice(1), 16)},[bahamut]`,
+      p: `${(c.time / 10).toFixed(2)},${positionToMode[c.position] || c.tp},${parseInt(c.color.slice(1), 16)},[bahamut]`,
       // 根据 globals.danmuSimplifiedTraditional 控制是否繁转简
       m: globals.danmuSimplifiedTraditional === 'simplified' ? simplized(c.text) : c.text,
-      t: Math.round(c.time / 10)
+      t: c.time / 10 
     }));
   }
 }
