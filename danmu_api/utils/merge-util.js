@@ -1708,6 +1708,10 @@ async function processMergeTask(params) {
     for (const secSource of availableSecondaries) {
         let secondaryItems = curAnimes.filter(a => {
             if (a.source !== secSource) return false;
+            
+            // 合集主源特权：当主源为合集时，允许无视当前组的消耗状态，复用已被消耗的副源以拼凑完整季度
+            if (isPrimaryCollection) return true;
+
             const isConsumed = groupConsumedIds.has(a.animeId);
             const isAllowedReuse = allowReuseIds && allowReuseIds.has(a.animeId);
             if (isConsumed && !isAllowedReuse) return false;
@@ -1729,8 +1733,11 @@ async function processMergeTask(params) {
         const matches = findSecondaryMatches(pAnime, secondaryItems, collectionAnimeIds);
         
         for (const match of matches) {
-            const isReuse = allowReuseIds && allowReuseIds.has(match.animeId);
-            if (!isReuse && groupConsumedIds.has(match.animeId)) continue;
+            // 合集主源特权：如果是合集主源，直接跳过此处的二次消耗校验
+            if (!isPrimaryCollection) {
+                const isReuse = allowReuseIds && allowReuseIds.has(match.animeId);
+                if (!isReuse && groupConsumedIds.has(match.animeId)) continue;
+            }
 
             const globalCachedMatch = globals.animes.find(a => String(a.animeId) === String(match.animeId));
             if (!globalCachedMatch?.links) continue;
@@ -2204,14 +2211,20 @@ export async function applyMergeLogic(curAnimes) {
     const groupFingerprint = fullPriorityList.join('&');
     const groupConsumedIds = new Set();
 
-    // 通用排序函数：媒体类型 (TV>Movie) > 季度编号 ASC (S1->S2) > 源优先级 ASC
+    // 通用排序函数：源优先级 ASC > 媒体类型 (TV>Movie) > 季度编号 ASC (S1->S2)
     const sortCandidates = (list, phaseName) => {
         if (!list || list.length < 2) return list;
         
         log("info", `[Merge-Check] [Sort] ${phaseName} 排序前首个元素: ${list[0].animeTitle}`);
 
         list.sort((a, b) => {
-            // 优先级 1: 媒体类型 (确保 TV 季度先于 电影/OVA/SP 处理)
+            // 优先级 1: 源优先级 ASC (依据配置文件定义的源顺序，主源总是先于副源执行)
+            // 加上 ?? 99 防止某些未在 map 中的源报错
+            const pA = sourcePriorityMap.get(a.source) ?? 99;
+            const pB = sourcePriorityMap.get(b.source) ?? 99;
+            if (pA !== pB) return pA - pB; 
+
+            // 优先级 2: 媒体类型 (确保同源内 TV 季度先于 电影/OVA/SP 处理)
             // 1 = High Priority (TV/Seasonal), 2 = Low Priority (Movie/Non-seasonal)
             const getMediaTypePriority = (anime) => {
                 const markers = extractSeasonMarkers(anime.animeTitle, anime.typeDescription);
@@ -2229,22 +2242,19 @@ export async function applyMergeLogic(curAnimes) {
             const typeB = getMediaTypePriority(b);
             if (typeA !== typeB) return typeA - typeB;
 
-            // 优先级 2: 季度编号 ASC (确保合集进度记录按顺序产生，S1 先于 S2)
+            // 优先级 3: 季度编号 ASC (确保同源、同类型内，按 S1, S2, S3 顺序执行)
             const sA = getSeasonNumber(a.animeTitle, a.typeDescription) || 1;
             const sB = getSeasonNumber(b.animeTitle, b.typeDescription) || 1;
-            if (sA !== sB) return sA - sB; 
-
-            // 优先级 3: 源优先级 ASC (依据配置文件定义的源顺序)
-            const pA = sourcePriorityMap.get(a.source);
-            const pB = sourcePriorityMap.get(b.source);
-            return pA - pB; 
+            return sA - sB; 
         });
 
+        // 优化了调试日志：加入优先级展示，例如 [P0] [S2] [dandan] ...
         const debugOrder = list.map(a => {
             const sNum = getSeasonNumber(a.animeTitle, a.typeDescription) || 1;
-            // 调试辅助：如果是电影类型，标记为 Movie 以便区分
             const typeLabel = (extractSeasonMarkers(a.animeTitle, a.typeDescription).has('MOVIE') || getStrictMediaType(a.animeTitle, a.typeDescription) === 'MOVIE') ? 'Movie' : `S${sNum}`;
-            return `[${typeLabel}] [${a.source}] ${a.animeTitle}`;
+            const pLevel = sourcePriorityMap.get(a.source) ?? '?';
+            
+            return `[P${pLevel}] [${typeLabel}] [${a.source}] ${a.animeTitle}`;
         });
         log("info", `[Merge-Check] [Sort] ${phaseName} 执行顺序:\n   ${debugOrder.join('\n   ')}`);
         return list;
