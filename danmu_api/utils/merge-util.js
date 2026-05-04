@@ -2648,7 +2648,11 @@ export async function applyMergeLogic(curAnimes, detailStore = null) {
     if (item._isMerged || globalConsumedIds.has(item.animeId)) curAnimes.splice(i, 1);
   }
 
-  log("info", `[Merge] 合并执行完毕，最终列表数量: ${curAnimes.length}`);
+  if (newMergedAnimes.length > 0) {
+      log("info", `[Merge] 合并执行完毕，新增了 ${newMergedAnimes.length} 个合并项，最终列表数量: ${curAnimes.length}`);
+  } else {
+      log("info", `[Merge] 扫描完毕，未产生任何合并，列表保持不变 (数量: ${curAnimes.length})`);
+  }
 }
 
 /**
