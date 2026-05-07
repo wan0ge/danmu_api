@@ -37,7 +37,7 @@ export default class DandanSource extends BaseSource {
    */
   async search(keyword, isFallback = false) {
     if (globals.useBangumiData && !isFallback) {
-      const localMatches = searchBangumiData(keyword, ['anidb']);
+      const localMatches = await searchBangumiData(keyword, ['anidb']);
       if (localMatches.length > 0) {
         log("info", `[Dandan] Bangumi-Data 本地命中 ${localMatches.length} 条数据`);
         return localMatches.map(m => {
