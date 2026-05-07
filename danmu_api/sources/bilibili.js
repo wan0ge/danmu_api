@@ -288,7 +288,7 @@ export default class BilibiliSource extends BaseSource {
     let localMatches = [];
     if (globals.useBangumiData) {
       // 获取本地匹配条目
-      localMatches = searchBangumiData(keyword, [
+      localMatches = await searchBangumiData(keyword, [
         'bilibili', 'bilibili_hk_mo_tw', 'bilibili_hk_mo', 'bilibili_tw'
       ]);
       log("info", `[Bilibili] Bangumi-Data 本地命中 ${localMatches.length} 条数据`);
