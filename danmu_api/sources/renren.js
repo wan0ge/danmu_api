@@ -318,14 +318,23 @@ export default class RenrenSource extends BaseSource {
 
       if (!resp.data) return null;
       
+      // 拦截 200 状态下的空弹幕提示
+      if (resp.data.error === "Document not found") return [];
+
       const data = autoDecode(resp.data);
       
+      // 解码后再次校验
+      if (data?.error === "Document not found") return [];
+
       // 兼容直接返回数组或包装在 data 字段中的情况
       if (Array.isArray(data)) return data;
       if (data && data.data && Array.isArray(data.data)) return data.data;
 
       return [];
     } catch (error) {
+      // 忽略底层抛出的 404 (无弹幕) 报错，直接返回空数组
+      if (error.message.includes('404')) return [];
+
       log("info", "[Renren] getAppDanmu error:", error.message);
       return null;
     }
@@ -607,13 +616,23 @@ export default class RenrenSource extends BaseSource {
       const fallbackResp = await this.renrenHttpGet(url, { headers });
       if (!fallbackResp.data) return [];
       
+      // 拦截 200 状态下的空弹幕提示
+      if (fallbackResp.data.error === "Document not found") return [];
+
       const data = autoDecode(fallbackResp.data);
+
+      // 解码后再次校验
+      if (data?.error === "Document not found") return [];
+
       let list = [];
       if (Array.isArray(data)) list = data;
       else if (data?.data && Array.isArray(data.data)) list = data.data;
       
       return list;
     } catch (e) {
+      // 忽略底层抛出的 404 (无弹幕) 报错，直接返回空数组
+      if (e.message.includes('404')) return [];
+
       log("info", `[Renren] 网页版弹幕降级失败: ${e.message}`);
       return [];
     }
