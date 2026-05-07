@@ -220,7 +220,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
       const displayTitle = m.titles.find(t => t && t.includes(cleanTitle)) || m.titles[1] || m.title;
       const jaOriginalTitle = m.title; // Bangumi Data 的主标题就是原名
 
-      log("info", `[TMDB] 命中本地 Bangumi Data，提取原名成功: 原名=${jaOriginalTitle}, 别名=${displayTitle}`);
+      log("info", `[TMDB] Bangumi-Data 本地命中，提取原名成功: 原名=${jaOriginalTitle}, 别名=${displayTitle}`);
       return { title: jaOriginalTitle, cnAlias: displayTitle };
     }
   }
