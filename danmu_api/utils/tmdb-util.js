@@ -214,7 +214,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
 
   // 优先尝试使用本地 Bangumi Data 获取原名与翻译，零延迟且无需 API Key
   if (globals.useBangumiData) {
-    const localMatches = searchBangumiData(cleanTitle, ['tmdb', 'bangumi', 'anidb']);
+    const localMatches = await searchBangumiData(cleanTitle, ['tmdb', 'bangumi', 'anidb']);
     if (localMatches && localMatches.length > 0) {
       const m = localMatches[0]; // 取第一个最佳匹配
       const displayTitle = m.titles.find(t => t && t.includes(cleanTitle)) || m.titles[1] || m.title;
