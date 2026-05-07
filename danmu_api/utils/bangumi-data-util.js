@@ -86,6 +86,12 @@ export async function initBangumiData(deployPlatform, isDataDependentRequest = f
 
             memoryCache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
 
+            // 兼容旧版缓存：静默热升级，应用最新预处理规则并生成特征指纹
+            if (memoryCache?.items?.length > 0 && memoryCache.items[0]._flatText === undefined) {
+                memoryCache = pruneBangumiData(memoryCache);
+                fs.writeFileSync(cachePath, JSON.stringify(memoryCache), 'utf-8');
+            }
+
             const memAfter = process.memoryUsage().heapUsed;
             const loadTimeMs = Date.now() - startTime; 
             memoryFootprintMB = Math.max(0, (memAfter - memBefore) / 1024 / 1024).toFixed(2);
