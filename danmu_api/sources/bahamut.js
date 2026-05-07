@@ -21,7 +21,7 @@ export default class BahamutSource extends BaseSource {
       let localMatches = [];
       // 提前获取本地匹配结果
       if (globals.useBangumiData) {
-        localMatches = searchBangumiData(keyword, ['gamer', 'gamer_hk']);
+        localMatches = await searchBangumiData(keyword, ['gamer', 'gamer_hk']);
         log("info", `[Bahamut] Bangumi-Data 本地命中 ${localMatches.length} 条数据`);
       }
 
