@@ -4,7 +4,7 @@ import { pipeline } from 'stream/promises';
 import fetch from 'node-fetch';
 import { globals } from '../configs/globals.js';
 import { log } from './log-util.js';
-import { titleMatches } from './common-util.js';
+import { titleMatches, normalizeSpaces, getExplicitSeasonNumber } from './common-util.js';
 import { simplized, traditionalized } from './zh-util.js';
 
 // =====================
@@ -18,10 +18,13 @@ let downloadLockTime = 0;
 let memoryFootprintMB = '0.00';
 let hasLoggedCacheWarning = false;
 
-// 定义缓存目录和文件名
+// 定义缓存目录/文件名/正则
 const CACHE_DIR = path.join(process.cwd(), '.cache');
 const CACHE_FILENAME = 'bangumi-data-cache.json';
 const DOWNLOAD_TIMEOUT_MS = 20000;
+const queryCache = new Map();
+const VALID_DUB_REGEX = /(?:普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽]|日[语語]|日配|原版|原[声聲])(?:版)?/;
+const SUFFIX_CLEAN_REGEX = /(?:\s+|^)(?:第?\s*(?:\d+|[一二三四五六七八九十]+)\s*[季期部]|season\s*\d+|s\d+|part\s*\d+|act\s*\d+|phase\s*\d+|the\s+final\s+season|(?:movie|film|ova|oad|sp|剧场版|劇場版|续[篇集]|外传)(?![a-z]))|[:：~～]|\s+.*?篇|(?<=\s|^)\d+$/gi;
 
 /**
  * 初始化 Bangumi Data 数据源
@@ -146,8 +149,9 @@ const ALLOWED_SITES = new Set([
 
 /**
  * 精简 Bangumi Data 数据结构
- * 提取搜索逻辑必须的字段，并过滤掉不包含目标站点标识的动漫条目，控制常驻内存占用
- * * @param {Object} rawData - 原始完整版 Bangumi Data JSON 对象
+ * 提取检索与渲染必需的字段，过滤无关站点，并在此时构建用于极速检索的倒排指纹文本
+ * 预处理后的数据会随主流程落盘，消除运行时的冷启动开销
+ * @param {Object} rawData - 原始完整版 Bangumi Data JSON 对象
  * @returns {Object} 包含精简后 items 数组的对象
  */
 function pruneBangumiData(rawData) {
@@ -170,7 +174,7 @@ function pruneBangumiData(rawData) {
         // 丢弃不包含任何目标站点的条目，避免占用内存
         if (validSites.length === 0) continue;
 
-        // 构建精简版条目，仅保留核心检索字段
+        // 构建精简版条目，保留核心数据
         const prunedItem = {
             title: item.title,
             type: item.type,
@@ -178,6 +182,18 @@ function pruneBangumiData(rawData) {
         };
         if (item.begin) prunedItem.begin = item.begin;
         if (item.titleTranslate) prunedItem.titleTranslate = item.titleTranslate;
+
+        // 构建聚合特征指纹：合并所有标题并进行统一字符集规范化及小写转换
+        let str = item.title;
+        if (item.titleTranslate) {
+            for (const lang in item.titleTranslate) {
+                const transArr = item.titleTranslate[lang];
+                for (let j = 0; j < transArr.length; j++) {
+                    str += transArr[j];
+                }
+            }
+        }
+        prunedItem._flatText = normalizeSpaces(str).toLowerCase();
 
         prunedItems.push(prunedItem);
     }
@@ -295,109 +311,197 @@ async function downloadAndCache(cachePath) {
 
 /**
  * 在 Bangumi Data 中搜索匹配的动漫条目
+ * 采用原生字符匹配进行初筛，结合特征词清洗逻辑，实现低开销检索
  * 支持多语言标题检索、特定站点过滤以及配音/区域版本解析
  * @param {string} keyword - 搜索关键词
  * @param {Array<string>} siteKeys - 需要匹配的源站点标识数组
- * @returns {Array<Object>} 匹配的动漫条目数组，包含解析后的展示标题、ID及类型等元数据
+ * @returns {Array<Object>} 匹配的动漫条目数组
  */
-export function searchBangumiData(keyword, siteKeys) {
+export async function searchBangumiData(keyword, siteKeys) {
     if (!memoryCache || !memoryCache.items) return [];
 
-    const validDubRegex = /(?:普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽]|日[语語]|日配|原版|原[声聲])(?:版)?/;
-    const results = [];
+    let searchPromise = queryCache.get(keyword);
 
-    // 简繁转换搜索关键词
-    let searchTerms = [keyword];
-    try {
-        searchTerms = [...new Set([keyword, simplized(keyword), traditionalized(keyword)])];
-    } catch (e) {
-    }
+    if (!searchPromise) {
+        searchPromise = (async () => {
+            const matched = [];
+            let searchTerms = [keyword];
+            try {
+                searchTerms = [...new Set([keyword, simplized(keyword), traditionalized(keyword)])];
+            } catch (e) {}
 
-    for (const item of memoryCache.items) {
-        // 构建完整的搜索标题池
-        const titles = [item.title];
-        if (item.titleTranslate) {
-            for (const lang in item.titleTranslate) {
-                titles.push(...item.titleTranslate[lang]);
-            }
-        }
+            // 提取核心检索词：剥离季度标识，规范化字符集
+            const coreKws = searchTerms.map(kw => {
+                let core = kw.replace(SUFFIX_CLEAN_REGEX, '');
+                core = normalizeSpaces(core).toLowerCase();
+                // 当规范化后字符过短时，降级使用仅规范化的原始词作为初筛条件
+                return core.length >= 2 ? core : normalizeSpaces(kw).toLowerCase();
+            }).filter(k => k.length > 0);
 
-        const isMatch = titles.some(t => t && searchTerms.some(kw => titleMatches(t, kw)));
+            const items = memoryCache.items;
+            const itemsLen = items.length;
+            const termsLen = searchTerms.length;
 
-        if (isMatch && item.sites) {
-            // 捕获所有符合条件的站点记录，支持同源多区域版本（如大陆版和港澳台版共存）
-            const matchedSites = item.sites.filter(s => siteKeys.includes(s.site));
+            for (let i = 0; i < itemsLen; i++) {
+                const item = items[i];
 
-            for (const matchedSite of matchedSites) {
-                // 标准化媒体类型映射
-                let typeStr = "TV动画";
-                let typeId = "tvseries";
-                if (item.type === 'movie') { typeStr = "剧场版"; typeId = "movie"; }
-                else if (item.type === 'tv') { typeStr = "TV动画"; typeId = "tvseries"; }
-                else if (item.type === 'ova') { typeStr = "OVA"; typeId = "ova"; }
-                else if (item.type === 'web') { typeStr = "WEB动画"; typeId = "web"; }
-
-                // 提取区域版本基础后缀
-                let baseSuffix = "";
-                if (['bilibili_hk_mo_tw', 'bilibili_hk_mo', 'bilibili_tw'].includes(matchedSite.site)) {
-                    baseSuffix = "（港澳台）";
-                }
-
-                // 解析衍生配音版本与当前主条目的附加描述
-                let additionalDubs = []; 
-                let mainItemDubs = [];   
-
-                if (matchedSite.comment) {
-                    const dubs = matchedSite.comment.split(/[,，]/);
-                    for (const dub of dubs) {
-                        const parts = dub.split(/[:：]/);
-                        if (parts.length >= 2) {
-                            const dubName = parts[0].trim();
-                            const dubId = parts[1].trim();
-                            if (dubId && validDubRegex.test(dubName)) {
-                                additionalDubs.push({
-                                    title: item.title,
-                                    titles: [...titles],
-                                    begin: item.begin,
-                                    siteId: dubId, 
-                                    matchedSiteKey: matchedSite.site,
-                                    type: item.type,
-                                    typeStr: typeStr,
-                                    typeId: typeId,
-                                    titleSuffix: ` ${dubName}${baseSuffix}`
-                                });
-                            }
-                        } else if (parts.length === 1 && parts[0].trim()) {
-                            const dubName = parts[0].trim();
-                            if (validDubRegex.test(dubName)) {
-                                mainItemDubs.push(dubName);
-                            }
+                // 初步筛选：基于预处理指纹属性 _flatText 进行底层包含关系校验
+                let passFastPath = false;
+                if (coreKws.length === 0) {
+                    passFastPath = true; 
+                } else {
+                    for (let k = 0; k < coreKws.length; k++) {
+                        if (item._flatText && item._flatText.indexOf(coreKws[k]) !== -1) {
+                            passFastPath = true;
+                            break;
                         }
                     }
                 }
 
-                // 组装当前主条目的最终后缀标签
-                let currentItemSuffix = "";
-                if (mainItemDubs.length > 0) {
-                    currentItemSuffix += ` ${mainItemDubs.join(' ')}`;
+                if (!passFastPath) continue;
+
+                // 核心匹配逻辑：校验主标题及所有多语言翻译版本
+                let isMatch = false;
+                for (let k = 0; k < termsLen; k++) {
+                    const kw = searchTerms[k];
+
+                    if (titleMatches(item.title, kw)) {
+                        isMatch = true; break;
+                    }
+
+                    if (item.titleTranslate) {
+                        for (const lang in item.titleTranslate) {
+                            const transArr = item.titleTranslate[lang];
+                            for (let j = 0; j < transArr.length; j++) {
+                                if (transArr[j] && titleMatches(transArr[j], kw)) {
+                                    isMatch = true; break;
+                                }
+                            }
+                            if (isMatch) break;
+                        }
+                    }
+                    if (isMatch) break;
                 }
-                currentItemSuffix += baseSuffix;
 
-                results.push({
-                    title: item.title,
-                    titles: [...titles],
-                    begin: item.begin,
-                    siteId: matchedSite.id,
-                    matchedSiteKey: matchedSite.site,
-                    type: item.type,
-                    typeStr: typeStr,
-                    typeId: typeId,
-                    titleSuffix: currentItemSuffix 
-                });
-
-                // 推送提取出的衍生条目
-                results.push(...additionalDubs);
+                // 装载匹配结果及其全量标题上下文
+                if (isMatch) {
+                    const titles = [item.title];
+                    if (item.titleTranslate) {
+                        for (const lang in item.titleTranslate) {
+                            const transArr = item.titleTranslate[lang];
+                            for (let j = 0; j < transArr.length; j++) {
+                                titles.push(transArr[j]);
+                            }
+                        }
+                    }
+                    matched.push({ item, titles });
+                }
             }
+            return matched;
+        })();
+
+        // 维护缓存容量池，基于 LRU 策略淘汰旧任务
+        if (queryCache.size > 100) {
+            const firstKey = queryCache.keys().next().value;
+            queryCache.delete(firstKey);
+        }
+        queryCache.set(keyword, searchPromise);
+    }
+
+    const matchedItems = await searchPromise;
+    let finalItems = matchedItems;
+
+    // 基于搜索词提取明确的季度信息并执行结果精准过滤
+    const querySeason = getExplicitSeasonNumber(keyword);
+    if (querySeason !== null) {
+        const tempFiltered = matchedItems.filter(({ item }) => {
+            let itemSeason = getExplicitSeasonNumber(item.title);
+            if (itemSeason === null && item.titleTranslate) {
+                for (const lang in item.titleTranslate) {
+                    const transArr = item.titleTranslate[lang];
+                    for (let j = 0; j < transArr.length; j++) {
+                        const s = getExplicitSeasonNumber(transArr[j]);
+                        if (s !== null) { itemSeason = s; break; }
+                    }
+                    if (itemSeason !== null) break;
+                }
+            }
+
+            // 搜索指定续作(>1)时，标题必须明确包含该季度标识
+            if (querySeason > 1) {
+                return (itemSeason || 1) === querySeason;
+            } 
+            // 搜索第1季时，拦截明确标明为其他季度(如第2季、第3季)的结果
+            else if (querySeason === 1) {
+                return itemSeason === null || itemSeason === 1;
+            }
+            return true;
+        });
+
+        // 仅当过滤后结果不为空时应用，防止由于解析缺失导致结果被误杀清空
+        if (tempFiltered.length > 0) {
+            finalItems = tempFiltered;
+        }
+    }
+
+    const validDubRegex = VALID_DUB_REGEX;
+    const results = [];
+
+    // 特定站点分发与区域版本/配音版本构建
+    for (const { item, titles } of finalItems) {
+        if (!item.sites) continue;
+
+        const matchedSites = item.sites.filter(s => siteKeys.includes(s.site));
+        for (const matchedSite of matchedSites) {
+            let typeStr = "TV动画"; let typeId = "tvseries";
+            if (item.type === 'movie') { typeStr = "剧场版"; typeId = "movie"; }
+            else if (item.type === 'tv') { typeStr = "TV动画"; typeId = "tvseries"; }
+            else if (item.type === 'ova') { typeStr = "OVA"; typeId = "ova"; }
+            else if (item.type === 'web') { typeStr = "WEB动画"; typeId = "web"; }
+
+            let baseSuffix = "";
+            if (['bilibili_hk_mo_tw', 'bilibili_hk_mo', 'bilibili_tw'].includes(matchedSite.site)) {
+                baseSuffix = "（港澳台）";
+            }
+
+            let additionalDubs = []; 
+            let mainItemDubs = [];   
+
+            if (matchedSite.comment) {
+                const dubs = matchedSite.comment.split(/[,，]/);
+                for (const dub of dubs) {
+                    const parts = dub.split(/[:：]/);
+                    if (parts.length >= 2) {
+                        const dubName = parts[0].trim(); const dubId = parts[1].trim();
+                        if (dubId && validDubRegex.test(dubName)) {
+                            additionalDubs.push({
+                                title: item.title, titles: [...titles], begin: item.begin,
+                                siteId: dubId, matchedSiteKey: matchedSite.site,
+                                type: item.type, typeStr: typeStr, typeId: typeId, titleSuffix: ` ${dubName}${baseSuffix}`
+                            });
+                        }
+                    } else if (parts.length === 1 && parts[0].trim()) {
+                        const dubName = parts[0].trim();
+                        if (validDubRegex.test(dubName)) {
+                            mainItemDubs.push(dubName);
+                        }
+                    }
+                }
+            }
+
+            // 组装当前主条目的最终后缀标签
+            let currentItemSuffix = "";
+            if (mainItemDubs.length > 0) { currentItemSuffix += ` ${mainItemDubs.join(' ')}`; }
+            currentItemSuffix += baseSuffix;
+
+            results.push({
+                title: item.title, titles: [...titles], begin: item.begin,
+                siteId: matchedSite.id, matchedSiteKey: matchedSite.site,
+                type: item.type, typeStr: typeStr, typeId: typeId, titleSuffix: currentItemSuffix 
+            });
+
+            // 推送提取出的衍生条目
+            results.push(...additionalDubs);
         }
     }
     return results;
@@ -412,6 +516,7 @@ export function clearBangumiDataCache() {
         const itemCount = memoryCache.items ? memoryCache.items.length : 0;
         memoryCache = null; // 切断引用，等待 GC 回收
         memoryCacheTime = 0; // 重置寿命时钟
+		queryCache.clear(); // 释放查询缓存
         const totalMemMB = (process.memoryUsage().rss / 1024 / 1024).toFixed(2);
         log("info", `[Bangumi-Data] 内存缓存已主动释放 (原条目数: ${itemCount}，释放: ${memoryFootprintMB} MB，当前项目总占用: ${totalMemMB} MB)`);
         memoryFootprintMB = '0.00'; // 重置探针
