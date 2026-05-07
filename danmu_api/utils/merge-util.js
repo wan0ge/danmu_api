@@ -508,6 +508,7 @@ function calculateSimilarity(str1, str2) {
   if (!str1 || !str2) return 0;
   const s1 = cleanTitleForSimilarity(str1);
   const s2 = cleanTitleForSimilarity(str2);
+  if (s1 === '' && s2 === '') return 0.0;
   if (s1 === s2) return 1.0;
   const len1 = s1.length, len2 = s2.length;
   const maxLen = Math.max(len1, len2), minLen = Math.min(len1, len2);
@@ -1411,6 +1412,7 @@ function findBestAlignmentOffset(primaryLinks, secondaryLinks, seriesLangA = 'Un
     let totalTextScore = 0, rawTextScoreSum = 0, matchCount = 0;
     let numericDiffs = new Map();
     let hasSeasonShiftMatch = false;
+    let lastPNumLocal = null;
 
     for (let i = 0; i < secondaryLinks.length; i++) {
       const pIndex = i + offset;
@@ -1453,10 +1455,23 @@ function findBestAlignmentOffset(primaryLinks, secondaryLinks, seriesLangA = 'Un
         rawTextScoreSum += sim;
         if (infoA.num !== null && infoB.num !== null && infoA.num === infoB.num) pairScore += MergeWeights.EP_ALIGN.NUMERIC_MATCH; 
 
+        let weightMultiplier = 1.0;
+        if (infoA.num !== null && !infoA.isSpecial) {
+            if (lastPNumLocal !== null && (infoA.num - lastPNumLocal > 1)) {
+                weightMultiplier = 0.1; // 发生断层，大幅削弱占位符拉扯 Offset 的能力
+            } else {
+                lastPNumLocal = infoA.num; // 未断层，更新健康游标
+            }
+        }
+
+        pairScore *= weightMultiplier;
+        sim *= weightMultiplier;
+
+        rawTextScoreSum += sim;
         totalTextScore += pairScore;
         if (infoA.num !== null && infoB.num !== null) {
             const diffKey = (infoB.num - infoA.num).toFixed(4);
-            numericDiffs.set(diffKey, (numericDiffs.get(diffKey) || 0) + 1);
+            numericDiffs.set(diffKey, (numericDiffs.get(diffKey) || 0) + weightMultiplier);
         }
         matchCount++;
       }
