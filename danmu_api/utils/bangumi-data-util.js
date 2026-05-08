@@ -17,14 +17,49 @@ let isDownloading = false;
 let downloadLockTime = 0;
 let memoryFootprintMB = '0.00';
 let hasLoggedCacheWarning = false;
+let charInvertedIndex = new Map();
 
-// 定义缓存目录/文件名/正则
+// 定义缓存目录/文件名
 const CACHE_DIR = path.join(process.cwd(), '.cache');
 const CACHE_FILENAME = 'bangumi-data-cache.json';
 const DOWNLOAD_TIMEOUT_MS = 20000;
 const queryCache = new Map();
+
+// 预编译全局正则表达式
 const VALID_DUB_REGEX = /(?:普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽]|日[语語]|日配|原版|原[声聲])(?:版)?/;
 const SUFFIX_CLEAN_REGEX = /(?:\s+|^)(?:第?\s*(?:\d+|[一二三四五六七八九十]+)\s*[季期部]|season\s*\d+|s\d+|part\s*\d+|act\s*\d+|phase\s*\d+|the\s+final\s+season|(?:movie|film|ova|oad|sp|剧场版|劇場版|续[篇集]|外传)(?![a-z]))|[:：~～]|\s+.*?篇|(?<=\s|^)\d+$/gi;
+const WHITESPACE_REGEX = /\s+/g;
+const COMMA_SPLIT_REGEX = /[,，]/;
+const COLON_SPLIT_REGEX = /[:：]/;
+
+/**
+ * 构建内存级倒排特征索引字典
+ * 提取每个条目的指纹字符，映射至该字符关联的条目数组序号中
+ * @param {Array<Object>} items - 已精简的条目数组
+ */
+function buildInvertedIndex(items) {
+    const newCharIndex = new Map();
+    const len = items.length;
+
+    for (let i = 0; i < len; i++) {
+        const flatText = items[i]._flatText;
+        if (!flatText) continue;
+
+        const uniqueChars = new Set(flatText);
+        for (const char of uniqueChars) {
+            if (char.trim() === '') continue; 
+
+            let idArray = newCharIndex.get(char);
+            if (!idArray) {
+                idArray = []; 
+                newCharIndex.set(char, idArray);
+            }
+            idArray.push(i);
+        }
+    }
+
+    charInvertedIndex = newCharIndex;
+}
 
 /**
  * 初始化 Bangumi Data 数据源
@@ -86,10 +121,14 @@ export async function initBangumiData(deployPlatform, isDataDependentRequest = f
 
             memoryCache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
 
-            // 兼容旧版缓存：静默热升级，应用最新预处理规则并生成特征指纹
+            // 兼容旧版缓存：静默热升级，应用预处理规则生成特征指纹并更新磁盘文件
             if (memoryCache?.items?.length > 0 && memoryCache.items[0]._flatText === undefined) {
                 memoryCache = pruneBangumiData(memoryCache);
                 fs.writeFileSync(cachePath, JSON.stringify(memoryCache), 'utf-8');
+				buildInvertedIndex(memoryCache.items);
+            } else if (memoryCache?.items?.length > 0) {
+                // 内存读取流程：倒排索引结构非持久化存储，需依据内存数据触发重建
+                buildInvertedIndex(memoryCache.items);
             }
 
             const memAfter = process.memoryUsage().heapUsed;
@@ -155,7 +194,7 @@ const ALLOWED_SITES = new Set([
 
 /**
  * 精简 Bangumi Data 数据结构
- * 提取检索与渲染必需的字段，过滤无关站点，并在此时构建用于极速检索的倒排指纹文本
+ * 提取检索与渲染必需的字段，过滤无关站点，并在此时提取倒排特征文本
  * 预处理后的数据会随主流程落盘，消除运行时的冷启动开销
  * @param {Object} rawData - 原始完整版 Bangumi Data JSON 对象
  * @returns {Object} 包含精简后 items 数组的对象
@@ -164,6 +203,7 @@ function pruneBangumiData(rawData) {
     if (!rawData || !rawData.items) return { items: [] };
 
     const prunedItems = [];
+
     for (const item of rawData.items) {
         // 筛选当前条目下属于允许列表的站点信息
         const validSites = [];
@@ -189,7 +229,7 @@ function pruneBangumiData(rawData) {
         if (item.begin) prunedItem.begin = item.begin;
         if (item.titleTranslate) prunedItem.titleTranslate = item.titleTranslate;
 
-        // 构建聚合特征指纹：合并所有标题并进行统一字符集规范化及小写转换
+        // 构建聚合特征指纹：合并所有标题，强制转换为简体，并进行统一字符集规范化及小写转换
         let str = item.title;
         if (item.titleTranslate) {
             for (const lang in item.titleTranslate) {
@@ -199,10 +239,12 @@ function pruneBangumiData(rawData) {
                 }
             }
         }
-        prunedItem._flatText = normalizeSpaces(str).toLowerCase();
 
+        const normalizedStr = simplized(str);
+        prunedItem._flatText = normalizeSpaces(normalizedStr).toLowerCase().replace(SUFFIX_CLEAN_REGEX, '');
         prunedItems.push(prunedItem);
     }
+
     return { items: prunedItems };
 }
 
@@ -251,6 +293,8 @@ async function downloadAndCache(cachePath) {
             const resultData = await response.json();
             const originalCount = resultData.items ? resultData.items.length : 0;
 
+            if (controller.signal.aborted) throw new Error('Aborted before parsing');
+
             // 立即执行数据裁剪以释放内存
             const localParseStartTime = Date.now();
             const prunedData = pruneBangumiData(resultData);
@@ -258,7 +302,7 @@ async function downloadAndCache(cachePath) {
 
             let tempFilePath = null;
 
-            if (cachePath) {
+            if (cachePath && !controller.signal.aborted) {
                 // 物理磁盘模式：为每个并发流生成独立的临时文件，写入精简后的数据
                 tempFilePath = `${cachePath}.tmp${index}`;
                 fs.writeFileSync(tempFilePath, JSON.stringify(prunedData), 'utf-8');
@@ -299,6 +343,8 @@ async function downloadAndCache(cachePath) {
         // 数据处理流
         memoryCache = winner.resultData;
         parseTimeMs = winner.pruneCost;
+		buildInvertedIndex(memoryCache.items);
+        queryCache.clear();
 
         const memAfter = process.memoryUsage().heapUsed;
         const totalTime = ((Date.now() - startTime) / 1000).toFixed(2); 
@@ -317,7 +363,7 @@ async function downloadAndCache(cachePath) {
 
 /**
  * 在 Bangumi Data 中搜索匹配的动漫条目
- * 采用原生字符匹配进行初筛，结合特征词清洗逻辑，实现低开销检索
+ * 采用倒排索引结合特征词清洗逻辑进行初筛，随后执行精准匹配
  * 支持多语言标题检索、特定站点过滤以及配音/区域版本解析
  * @param {string} keyword - 搜索关键词
  * @param {Array<string>} siteKeys - 需要匹配的源站点标识数组
@@ -331,42 +377,85 @@ export async function searchBangumiData(keyword, siteKeys) {
     if (!searchPromise) {
         searchPromise = (async () => {
             const matched = [];
+
+            // 保留完整的繁简变体数组用于最终的精准校验阶段
             let searchTerms = [keyword];
             try {
                 searchTerms = [...new Set([keyword, simplized(keyword), traditionalized(keyword)])];
             } catch (e) {}
 
-            // 提取核心检索词：剥离季度标识，规范化字符集
-            const coreKws = searchTerms.map(kw => {
+            // 提取核心检索词：基于底层指纹的简体单向收束特性，仅提取简体核心词用于极速初筛
+            const unifiedKeyword = simplized(keyword);
+            const coreKws = [unifiedKeyword].map(kw => {
                 let core = kw.replace(SUFFIX_CLEAN_REGEX, '');
                 core = normalizeSpaces(core).toLowerCase();
                 // 当规范化后字符过短时，降级使用仅规范化的原始词作为初筛条件
                 return core.length >= 2 ? core : normalizeSpaces(kw).toLowerCase();
             }).filter(k => k.length > 0);
 
-            const items = memoryCache.items;
-            const itemsLen = items.length;
-            const termsLen = searchTerms.length;
+            let candidateIndices = null; 
 
-            for (let i = 0; i < itemsLen; i++) {
-                const item = items[i];
+            // 倒排索引初筛逻辑
+            if (typeof charInvertedIndex !== 'undefined' && charInvertedIndex.size > 0 && coreKws.length > 0) {
+                const globalCandidates = new Set(); 
 
-                // 初步筛选：基于预处理指纹属性 _flatText 进行底层包含关系校验
-                let passFastPath = false;
-                if (coreKws.length === 0) {
-                    passFastPath = true; 
-                } else {
-                    for (let k = 0; k < coreKws.length; k++) {
-                        if (item._flatText && item._flatText.indexOf(coreKws[k]) !== -1) {
-                            passFastPath = true;
-                            break;
+                for (const kw of coreKws) {
+                    // 剔除空格后，获取当前搜索词的所有去重单字
+                    const chars = Array.from(new Set(kw.replace(WHITESPACE_REGEX, '')));
+                    if (chars.length === 0) continue;
+
+                    // 按字在库中出现的频率从小到大排序，优先处理包含条目最少的字以减少运算量
+                    chars.sort((a, b) => {
+                        const lenA = charInvertedIndex.get(a)?.length || 0;
+                        const lenB = charInvertedIndex.get(b)?.length || 0;
+                        return lenA - lenB;
+                    });
+
+                    // 如果出现频率最低的字不存在，表明该词无对应条目
+                    const rarestCharArr = charInvertedIndex.get(chars[0]);
+                    if (!rarestCharArr || rarestCharArr.length === 0) {
+                        continue; 
+                    }
+
+                    // 初始化当前词的候选池
+                    let localCandidates = new Set(rarestCharArr);
+
+                    // 依次与后续字的集合求交集
+                    for (let i = 1; i < chars.length; i++) {
+                        const nextCharArr = charInvertedIndex.get(chars[i]);
+                        if (!nextCharArr) {
+                            localCandidates.clear(); break;
                         }
+
+                        const nextCharSet = new Set(nextCharArr);
+                        for (const idx of localCandidates) {
+                            if (!nextCharSet.has(idx)) {
+                                localCandidates.delete(idx);
+                            }
+                        }
+                        if (localCandidates.size === 0) break;
+                    }
+
+                    // 合并到全局候选池
+                    for (const idx of localCandidates) {
+                        globalCandidates.add(idx);
                     }
                 }
+                
+                candidateIndices = Array.from(globalCandidates);
+            } 
+            else {
+                // 索引未就绪时，降级使用全量扫描
+                candidateIndices = memoryCache.items.map((_, i) => i);
+            }
 
-                if (!passFastPath) continue;
+            const items = memoryCache.items;
+            const termsLen = searchTerms.length;
 
-                // 核心匹配逻辑：校验主标题及所有多语言翻译版本
+            // 核心匹配逻辑：校验候选项的主标题及所有多语言翻译版本
+            for (let i = 0; i < candidateIndices.length; i++) {
+                const item = items[candidateIndices[i]];
+
                 let isMatch = false;
                 for (let k = 0; k < termsLen; k++) {
                     const kw = searchTerms[k];
@@ -474,9 +563,9 @@ export async function searchBangumiData(keyword, siteKeys) {
             let mainItemDubs = [];   
 
             if (matchedSite.comment) {
-                const dubs = matchedSite.comment.split(/[,，]/);
+                const dubs = matchedSite.comment.split(COMMA_SPLIT_REGEX);
                 for (const dub of dubs) {
-                    const parts = dub.split(/[:：]/);
+                    const parts = dub.split(COLON_SPLIT_REGEX);
                     if (parts.length >= 2) {
                         const dubName = parts[0].trim(); const dubId = parts[1].trim();
                         if (dubId && validDubRegex.test(dubName)) {
@@ -522,7 +611,8 @@ export function clearBangumiDataCache() {
         const itemCount = memoryCache.items ? memoryCache.items.length : 0;
         memoryCache = null; // 切断引用，等待 GC 回收
         memoryCacheTime = 0; // 重置寿命时钟
-		queryCache.clear(); // 释放查询缓存
+        queryCache.clear(); // 释放查询缓存
+        charInvertedIndex.clear(); // 释放倒排索引内存
         const totalMemMB = (process.memoryUsage().rss / 1024 / 1024).toFixed(2);
         log("info", `[Bangumi-Data] 内存缓存已主动释放 (原条目数: ${itemCount}，释放: ${memoryFootprintMB} MB，当前项目总占用: ${totalMemMB} MB)`);
         memoryFootprintMB = '0.00'; // 重置探针
