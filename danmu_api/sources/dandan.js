@@ -12,7 +12,7 @@ import MangoSource from "./mango.js";
 import BilibiliSource from "./bilibili.js";
 import YoukuSource from "./youku.js";
 import BahamutSource from "./bahamut.js";
-import { titleMatches, getExplicitSeasonNumber } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
 import { searchBangumiData } from '../utils/bangumi-data-util.js';
 
 const tencentSource = new TencentSource();
@@ -324,7 +324,7 @@ export default class DandanSource extends BaseSource {
     if (querySeason !== null) {
       const filtered = sourceAnimes.filter(anime => {
         const titleToCheck = anime._displayTitle || anime.animeTitle;
-        const s = getExplicitSeasonNumber(titleToCheck);
+        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
         return s === querySeason || (querySeason === 1 && s === null);
       });
 
@@ -363,7 +363,7 @@ export default class DandanSource extends BaseSource {
           // 关联作品标题含季度信息（避免范围发散），或初始搜索结果不少于25个（API25个结果上限，用相关作品突破）
           if (similarity >= 0.1 && details.relateds && Array.isArray(details.relateds) && canExpandRelateds) {
             for (const rel of details.relateds) {
-              const hasSeason = getExplicitSeasonNumber(rel.animeTitle) !== null;
+              const hasSeason = extractSeasonNumberFromAnimeTitle(rel.animeTitle).season !== null;
               if (!existingIds.has(rel.animeId) && (hasSeason || initialCount >= 25)) {
                 existingIds.add(rel.animeId);
                 queue.push({
