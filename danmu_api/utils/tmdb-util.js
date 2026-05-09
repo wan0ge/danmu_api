@@ -684,7 +684,19 @@ export function cleanSearchQuery(title) {
 export function smartTitleReplace(animes, cnAlias) {
   if (!animes || animes.length === 0 || !cnAlias) return;
 
-  log("info", `[TMDB] 启动智能替换，目标别名: "${cnAlias}"，待处理条目: ${animes.length}`);
+  let validCount = 0;
+  // 遍历列表执行属性兜底赋值，并统计实际需要执行标题替换的有效条目数
+  for (const anime of animes) {
+    anime._displayTitle = anime._displayTitle || anime.title || "";
+    if (!(anime.isLocalPriority || anime._displayTitle.includes(cnAlias))) {
+      validCount++;
+    }
+  }
+
+  // 若有效替换条目数为0，说明均已处理或无需处理，直接静默退出
+  if (validCount === 0) return;
+
+  log("info", `[TMDB] 启动智能替换，目标别名: "${cnAlias}"，待处理条目: ${validCount}`);
 
   // 计算所有标题主体部分的 LCP (最长公共前缀)
   const baseTitles = animes.map(a => {
@@ -705,36 +717,31 @@ export function smartTitleReplace(animes, cnAlias) {
     log("info", `[TMDB] 计算出最长公共前缀 (LCP): "${lcp}"`);
   }
 
+  // 执行具体的智能替换策略
   for (const anime of animes) {
     const originalTitle = anime.title || "";
 
-    // 防止本地 Bangumi Data 标题被替换与防止重复标题
-    if (anime.isLocalPriority || originalTitle.includes(cnAlias)) {
-      anime._displayTitle = anime._displayTitle || originalTitle;
-      continue;
-    }
+    // 过滤已被本地数据处理或已含目标别名的条目
+    if (anime.isLocalPriority || originalTitle.includes(cnAlias)) continue;
 
     // 策略 A: LCP 模式
     if (lcp && lcp.length > 1 && originalTitle.startsWith(lcp)) {
       const suffix = originalTitle.substring(lcp.length).trim();
       anime._displayTitle = suffix ? `${cnAlias}${suffix.match(/^[~～:：]/) ? '' : ' '}${suffix}` : cnAlias;
       log("info", `[TMDB] [LCP模式] "${originalTitle}" -> "${anime._displayTitle}"`);
-    } 
-    // 策略 B: 分隔符模式
-    else {
+    } else {
       const match = originalTitle.match(SEPARATOR_REGEX);
       if (match) {
         const prefix = originalTitle.substring(0, match.index).trim();
         const suffix = originalTitle.substring(match.index);
-
-        // 防止替换必要前缀
+        // 策略 B1: 前缀保护模式（防止截断季数等特征前缀）
         if (prefix && SUFFIX_PATTERN.test(prefix)) {
           const subMatch = suffix.trim().match(SEPARATOR_REGEX);
           const subSuffix = subMatch ? suffix.trim().substring(subMatch.index) : '';
           anime._displayTitle = `${prefix} ${cnAlias}${subSuffix}`;
           log("info", `[TMDB] [前缀保护模式] "${originalTitle}" -> "${anime._displayTitle}"`);
         } else {
-          // 常规分隔符替换
+          // 策略 B2: 常规分隔符模式
           anime._displayTitle = cnAlias + suffix;
           log("info", `[TMDB] [分隔符模式] "${originalTitle}" -> "${anime._displayTitle}"`);
         }
