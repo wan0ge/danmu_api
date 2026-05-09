@@ -6,7 +6,7 @@ import { generateValidStartDate } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
 import { simplized, traditionalized } from "../utils/zh-util.js";
 import { getTmdbJaOriginalTitle, smartTitleReplace } from "../utils/tmdb-util.js";
-import { strictTitleMatch, normalizeSpaces, getExplicitSeasonNumber } from "../utils/common-util.js";
+import { strictTitleMatch, normalizeSpaces, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
 import { SegmentListResponse } from '../models/dandan-model.js';
 import { searchBangumiData } from '../utils/bangumi-data-util.js';
 
@@ -346,7 +346,7 @@ export default class BahamutSource extends BaseSource {
     if (querySeason !== null) {
       const seasonFiltered = filtered.filter(anime => {
         const titleToCheck = anime._displayTitle || anime.title;
-        const s = getExplicitSeasonNumber(titleToCheck);
+        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
         return s === querySeason || (querySeason === 1 && s === null);
       });
 
