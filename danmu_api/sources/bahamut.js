@@ -161,11 +161,10 @@ export default class BahamutSource extends BaseSource {
         for (const item of finalResults) {
           if (!item || !item.acg_sn) continue;
 
-          // 依据 acg_sn 匹配本地数据
-          const matchedLocal = localMatches.find(m => 
-              String(item.acg_sn) === String(m.siteId) || 
-              (item.title && m.title === item.title)
-          );
+          // 对齐逻辑：优先精准匹配 acg_sn，其次降级匹配原名
+          const matchedLocal = 
+              localMatches.find(m => String(item.acg_sn) === String(m.siteId)) || 
+              localMatches.find(m => item.title && m.title === item.title);
 
           if (matchedLocal) {
               const originalBahamutTitle = item.title;
