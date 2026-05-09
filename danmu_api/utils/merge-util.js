@@ -1458,9 +1458,9 @@ function findBestAlignmentOffset(primaryLinks, secondaryLinks, seriesLangA = 'Un
         let weightMultiplier = 1.0;
         if (infoA.num !== null && !infoA.isSpecial) {
             if (lastPNumLocal !== null && (infoA.num - lastPNumLocal > 1)) {
-                weightMultiplier = 0.1; // 发生断层，大幅削弱占位符拉扯 Offset 的能力
+                weightMultiplier = 0.1;
             } else {
-                lastPNumLocal = infoA.num; // 未断层，更新健康游标
+                lastPNumLocal = infoA.num;
             }
         }
 
@@ -2432,6 +2432,9 @@ function detectCollectionCandidates(curAnimes) {
  * @returns {Promise<void>}
  */
 export async function applyMergeLogic(curAnimes, detailStore = null) {
+  if (!curAnimes || curAnimes.length < 2) {
+    return;
+  }
   const groups = globals.mergeSourcePairs; 
   if (!groups || groups.length === 0) return;
 
@@ -2600,7 +2603,9 @@ export async function applyMergeLogic(curAnimes, detailStore = null) {
        items.forEach(item => remainingCandidates.push(item));
     });
 
-    if (remainingCandidates.length > 0) {
+    const uniqueRemainingSources = new Set(remainingCandidates.map(a => a.source));
+
+    if (remainingCandidates.length > 0 && uniqueRemainingSources.size >= 2) {
         log("info", `[Merge] [Phase 2] 启动标准回退匹配: 剩余 ${remainingCandidates.length} 个资源。`);
         sortCandidates(remainingCandidates, "Phase 2");
 
