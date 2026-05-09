@@ -174,6 +174,7 @@ export default class BahamutSource extends BaseSource {
               // 注入本地别名和优选标题，同时挂载精准类型
               item.title = finalTitle;
               item._displayTitle = finalTitle;
+			  item.isLocalPriority = true;
               item.aliases = [...matchedLocal.titles];
 
               // 将原始网络标题加入别名池，防止后续匹配时丢失源站的精确特征
