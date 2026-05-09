@@ -4,7 +4,7 @@ import { pipeline } from 'stream/promises';
 import fetch from 'node-fetch';
 import { globals } from '../configs/globals.js';
 import { log } from './log-util.js';
-import { titleMatches, normalizeSpaces, getExplicitSeasonNumber } from './common-util.js';
+import { titleMatches, normalizeSpaces, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from './common-util.js';
 import { simplized, traditionalized } from './zh-util.js';
 
 // =====================
@@ -510,12 +510,12 @@ export async function searchBangumiData(keyword, siteKeys) {
     const querySeason = getExplicitSeasonNumber(keyword);
     if (querySeason !== null) {
         const tempFiltered = matchedItems.filter(({ item }) => {
-            let itemSeason = getExplicitSeasonNumber(item.title);
+            let itemSeason = extractSeasonNumberFromAnimeTitle(item.title).season;
             if (itemSeason === null && item.titleTranslate) {
                 for (const lang in item.titleTranslate) {
                     const transArr = item.titleTranslate[lang];
                     for (let j = 0; j < transArr.length; j++) {
-                        const s = getExplicitSeasonNumber(transArr[j]);
+                        const s = extractSeasonNumberFromAnimeTitle(transArr[j]).season;
                         if (s !== null) { itemSeason = s; break; }
                     }
                     if (itemSeason !== null) break;
