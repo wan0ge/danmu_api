@@ -6,7 +6,7 @@ import { generateValidStartDate } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
 import { simplized, traditionalized } from "../utils/zh-util.js";
 import { getTmdbJaOriginalTitle, smartTitleReplace } from "../utils/tmdb-util.js";
-import { strictTitleMatch, normalizeSpaces } from "../utils/common-util.js";
+import { strictTitleMatch, normalizeSpaces, getExplicitSeasonNumber } from "../utils/common-util.js";
 import { SegmentListResponse } from '../models/dandan-model.js';
 import { searchBangumiData } from '../utils/bangumi-data-util.js';
 
@@ -337,8 +337,28 @@ export default class BahamutSource extends BaseSource {
     const cnAlias = filtered.length > 0 ? filtered[0]._tmdbCnAlias : null;
     smartTitleReplace(filtered, cnAlias);
 
+    // 提取搜索词中的明确季度信息
+    const querySeason = getExplicitSeasonNumber(queryTitle);
+
+    // 初始列表预过滤机制：若用户指定了季度，优先检查初始结果中是否已包含匹配项
+    let matchedAnimes = filtered;
+
+    if (querySeason !== null) {
+      const seasonFiltered = filtered.filter(anime => {
+        const titleToCheck = anime._displayTitle || anime.title;
+        const s = getExplicitSeasonNumber(titleToCheck);
+        return s === querySeason || (querySeason === 1 && s === null);
+      });
+
+      // 如果已命中目标，减少详情请求量
+      if (seasonFiltered.length > 0) {
+        matchedAnimes = seasonFiltered;
+        log("info", `[Bahamut] 结果已命中目标季(第${querySeason}季)，跳过非目标季相关请求`);
+      }
+    }
+
     // 使用 map 和 async 时需要返回 Promise 数组，并等待所有 Promise 完成
-    const processBahamutAnimes = await Promise.all(filtered.map(async (anime) => {
+    const processBahamutAnimes = await Promise.all(matchedAnimes.map(async (anime) => {
       try {
         const epData = await this.getEpisodes(anime.video_sn);
         const detail = epData.video;
