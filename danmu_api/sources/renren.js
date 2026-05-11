@@ -12,7 +12,6 @@ import { SegmentListResponse } from '../models/dandan-model.js';
 // 获取人人视频弹幕
 // =====================
 
-
 // 模块级状态管理 (Instance Level State)
 // 缓存当前的 AliID (全局共享，跨请求持久化，模拟设备指纹)
 let CACHED_ALI_ID = null;
@@ -21,9 +20,17 @@ let REQUEST_COUNT = 0;
 // 触发轮换的阈值 (将在 30-60 之间随机生成)
 let ROTATION_THRESHOLD = 0;
 
+// 接口健康状态缓存 (全局共享，跨请求持久化，实现业务级智能路由)
+// 链路层级规范: Search/Danmu (TV -> WIN -> WEB), Detail (TV -> WEB)
+const API_HEALTH = {
+  search: 'TV',
+  detail: 'TV',
+  danmu: 'TV'
+};
+
 /**
  * 人人视频弹幕源
- * 集成 TV 端 API 协议，保留网页版接口作为降级容灾策略。
+ * 集成 TV 端 API 协议，保留 Win端与网页版接口作为降级容灾策略。
  * 兼容处理 SeriesId-EpisodeId 复合主键，确保弹幕与剧集详情的关联正确性。
  */
 export default class RenrenSource extends BaseSource {
@@ -41,13 +48,17 @@ export default class RenrenSource extends BaseSource {
     
     // TV 端接口配置
     TV_HOST: "api.gorafie.com",
-    TV_DANMU_HOST: "static-dm.qwdjapp.com",
+    TV_DANMU_HOST: "static-dm.qwdjapp.com233",
     TV_VERSION: "1.2.2",
     TV_USER_AGENT: 'okhttp/3.12.13',
     TV_CLIENT_TYPE: 'android_qwtv_RRSP',
     TV_PKT: 'rrmj',
 
-    // 网页版/旧版接口配置 (降级备用)
+    // Win 端接口配置 (一级降级备用)
+    WIN_HOST: "api.pleasfun.com",
+    WIN_DANMU_HOST: "static-dm.lequkeji.com",
+
+    // 网页版/旧版接口配置 (终极降级备用)
     WEB_HOST: "api.rrmj.plus",
     WEB_DANMU_HOST: "static-dm.rrmj.plus"
   };
@@ -187,7 +198,6 @@ export default class RenrenSource extends BaseSource {
       const headers = this.generateTvHeaders(timestamp, sign);
 
       const url = `https://${this.API_CONFIG.TV_HOST}${path}?${queryString}`;
-      // log("info", `[Renren] TV搜索请求: ${url}`);
 
       const resp = await httpGet(url, {
         headers: headers,
@@ -200,7 +210,6 @@ export default class RenrenSource extends BaseSource {
       }
 
       const list = resp.data.data || [];
-      log("info", `[Renren] TV搜索返回结果数量: ${list.length}`);
 
       return list.map((item) => ({
         provider: "renren",
@@ -216,6 +225,71 @@ export default class RenrenSource extends BaseSource {
     } catch (error) {
       log("info", "[Renren] searchAppContent error:", error.message);
       return [];
+    }
+  }
+
+  /**
+   * 搜索剧集 (Win API 降级)
+   * 深度展平提取模糊查询项与独立合集项
+   */
+  async performWinSearch(keyword, size = 30) {
+    try {
+      const url = `https://${this.API_CONFIG.WIN_HOST}/search/comprehensive/precise-mixed`;
+      const params = { keywords: keyword, searchAfter: "", size: size };
+      const queryString = sortedQueryString(params);
+      
+      const headers = {
+        'Content-Type': 'application/json',
+        'clientType': 'win_rrsp_gw',
+        'clientVersion': '1.24.2',
+        'cv': '1.24.2',
+        'ct': 'win_rrsp_gw',
+        'User-Agent': 'Boost.Beast/351'
+      };
+
+      const resp = await httpGet(`${url}?${queryString}`, { headers, retries: 1 });
+      if (!resp.data || resp.data.code !== "0000") {
+        log("info", `[Renren] Win端搜索接口异常: code=${resp?.data?.code}`);
+        return [];
+      }
+
+      const data = resp.data.data || {};
+      let results = [];
+
+      // 数据域提取
+      const seasonList = data.seasonList || [];
+      const fuzzySeasonList = data.fuzzySeasonList || [];
+      const seriesList = data.seriesList || [];
+      
+      // 数据模型装载器
+      const processItem = (item) => ({
+        provider: "renren",
+        mediaId: String(item.id),
+        title: String(item.title || item.alias || item.name || "").replace(/<[^>]+>/g, "").replace(/:/g, "："),
+        type: item.classify || item.cat || "Renren",
+        season: null,
+        year: item.year || null,
+        imageUrl: item.cover || item.coverUrl,
+        episodeCount: null,
+        currentEpisodeIndex: null,
+      });
+
+      seasonList.forEach(item => results.push(processItem(item)));
+      fuzzySeasonList.forEach(item => results.push(processItem(item)));
+      
+      // 处理季集嵌套数据结构
+      seriesList.forEach(series => {
+          if (series.seasonList && Array.isArray(series.seasonList)) {
+              series.seasonList.forEach(seasonItem => {
+                  results.push(processItem(seasonItem));
+              });
+          }
+      });
+
+      return results;
+    } catch (error) {
+       log("info", "[Renren] performWinSearch error:", error.message);
+       return [];
     }
   }
 
@@ -272,7 +346,7 @@ export default class RenrenSource extends BaseSource {
         return null;
       }
 
-      // 4. 检测分集数据完整性 (关键修改：如果详情成功但没分集，也视为失败)
+      // 4. 检测分集数据完整性
       if (!resData.data || !resData.data.episodeList || resData.data.episodeList.length === 0) {
         log("info", `[Renren] TV详情接口返回数据缺失分集列表 (ID=${dramaId})，尝试Web降级`);
         return null; // 触发降级
@@ -332,11 +406,40 @@ export default class RenrenSource extends BaseSource {
   }
 
   /**
-   * 执行网页版网络搜索 (降级逻辑)
+   * 获取单集弹幕 (Win API 降级)
+   * 无需密钥与复杂签名，直接获取JSON数据
+   */
+  async getWinDanmu(episodeSid) {
+    try {
+      let realEpisodeId = episodeSid;
+      if (String(episodeSid).includes("-")) {
+        realEpisodeId = String(episodeSid).split("-")[1];
+      }
+
+      const url = `https://${this.API_CONFIG.WIN_DANMU_HOST}/v1/produce/danmu/EPISODE/${realEpisodeId}`;
+      const headers = {
+        'User-Agent': 'Boost.Beast/351'
+      };
+
+      const resp = await httpGet(url, { headers, retries: 1 });
+      if (!resp.data) return [];
+      
+      const data = resp.data;
+      if (Array.isArray(data)) return data;
+      if (data && data.data && Array.isArray(data.data)) return data.data;
+
+      return [];
+    } catch (error) {
+       log("info", "[Renren] getWinDanmu error:", error.message);
+       return null;
+    }
+  }
+
+  /**
+   * 执行网页版网络搜索 (终极降级逻辑)
    */
   async performNetworkSearch(keyword, { lockRef = null, lastRequestTimeRef = { value: 0 }, minInterval = 500 } = {}) {
     try {
-      log("info", `[Renren] 尝试执行网页版搜索: ${keyword}`);
       const url = `https://${this.API_CONFIG.WEB_HOST}/m-station/search/drama`;
       const params = { 
         keywords: keyword, 
@@ -367,7 +470,6 @@ export default class RenrenSource extends BaseSource {
 
       const decoded = autoDecode(resp.data);
       const list = decoded?.data?.searchDramaList || [];
-      log("info", `[Renren] 网页版搜索结果数量: ${list.length}`);
       
       return list.map((item) => ({
         provider: "renren",
@@ -397,20 +499,50 @@ export default class RenrenSource extends BaseSource {
     const searchSeason = parsedKeyword.season;
 
     let allResults = [];
+    const tiers = ['TV', 'WIN', 'WEB'];
     
-    // 1. 优先使用 TV 接口
-    allResults = await this.searchAppContent(searchTitle);
-    
-    // 2. 降级策略: 若 TV 接口无结果，尝试网页接口
+    let currentTierIndex = tiers.indexOf(API_HEALTH.search);
+    if (currentTierIndex === -1) currentTierIndex = 0;
+
+    // 智能路由检测与降级回路
+    for (let i = currentTierIndex; i < tiers.length; i++) {
+        const tier = tiers[i];
+        log("info", `[Renren] 尝试使用 ${tier} 端接口搜索`);
+        
+        try {
+            if (tier === 'TV') {
+                allResults = await this.searchAppContent(searchTitle);
+            } else if (tier === 'WIN') {
+                allResults = await this.performWinSearch(searchTitle);
+            } else if (tier === 'WEB') {
+                const lock = { value: false };
+                const lastRequestTime = { value: 0 };
+                allResults = await this.performNetworkSearch(searchTitle, { 
+                    lockRef: lock, 
+                    lastRequestTimeRef: lastRequestTime, 
+                    minInterval: 400 
+                });
+            }
+
+            if (allResults && allResults.length > 0) {
+                // 记录当前健康的接口层级
+                if (API_HEALTH.search !== tier) {
+                    log("info", `[Renren] 搜索域接口健康状态更新: ${API_HEALTH.search} -> ${tier}`);
+                    API_HEALTH.search = tier;
+                }
+                break;
+            } else {
+                log("info", `[Renren] ${tier} 端搜索无结果或请求失败，触发降级`);
+            }
+        } catch (e) {
+            log("info", `[Renren] ${tier} 端搜索异常，触发降级: ${e.message}`);
+        }
+    }
+
+    // 所有端点轮换完毕仍未获取到数据，重置健康状态以便下一次重新探测
     if (allResults.length === 0) {
-      log("info", "[Renren] TV 搜索无结果，降级到网页接口");
-      const lock = { value: false };
-      const lastRequestTime = { value: 0 };
-      allResults = await this.performNetworkSearch(searchTitle, { 
-        lockRef: lock, 
-        lastRequestTimeRef: lastRequestTime, 
-        minInterval: 400 
-      });
+        log("info", `[Renren] 搜索域所有降级接口均失败，重置健康状态至 TV 端`);
+        API_HEALTH.search = 'TV';
     }
 
     if (searchSeason == null) return allResults;
@@ -419,14 +551,23 @@ export default class RenrenSource extends BaseSource {
   }
 
   async getDetail(id) {
-    // 1. 优先使用 TV 接口
-    const resp = await this.getAppDramaDetail(String(id));
-    if (resp && resp.data) {
-      return resp.data;
+    let detail = null;
+    
+    // 若详情接口域健康状态不是WEB，优先尝试 TV 接口
+    if (API_HEALTH.detail !== 'WEB') {
+        detail = await this.getAppDramaDetail(String(id));
     }
     
-    // 2. 降级策略: 尝试网页接口
-    log("info", `[Renren] TV详情不可用，尝试请求网页版接口 (ID=${id})`); 
+    if (detail && detail.data) {
+        if (API_HEALTH.detail !== 'TV') {
+           log("info", `[Renren] 详情域接口健康状态更新: ${API_HEALTH.detail} -> TV`);
+           API_HEALTH.detail = 'TV';
+        }
+        return detail.data;
+    }
+    
+    // 降级策略: 尝试网页接口
+    log("info", `[Renren] TV详情不可用或主接口降级，尝试请求网页版接口 (ID=${id})`); 
     const url = `https://${this.API_CONFIG.WEB_HOST}/m-station/drama/page`;
     const params = { hsdrOpen: 0, isAgeLimit: 0, dramaId: String(id), hevcOpen: 1 };
     
@@ -437,13 +578,22 @@ export default class RenrenSource extends BaseSource {
       const decoded = autoDecode(fallbackResp.data);
       if (decoded && decoded.data) {
          log("info", `[Renren] 网页版详情获取成功: 包含集数=${decoded.data.episodeList ? decoded.data.episodeList.length : 0}`);
+         
+         if (API_HEALTH.detail !== 'WEB') {
+            log("info", `[Renren] 详情域接口健康状态更新: ${API_HEALTH.detail} -> WEB`);
+            API_HEALTH.detail = 'WEB';
+         }
+
          return decoded.data;
       }
-      return null;
     } catch (e) {
       log("info", `[Renren] 网页版详情请求失败: ${e.message}`);
-      return null;
     }
+
+    // 所有端点轮换完毕仍未获取到数据，重置健康状态
+    log("info", `[Renren] 详情域所有降级接口均失败，重置健康状态至 TV 端`);
+    API_HEALTH.detail = 'TV';
+    return null;
   }
 
   async getEpisodes(id) {
@@ -523,6 +673,11 @@ export default class RenrenSource extends BaseSource {
       }
     }
 
+    // 打印过滤合并后的结果日志
+    const tierNameMap = { 'TV': 'TV', 'WIN': 'Win', 'WEB': '网页' };
+    const currentTierName = tierNameMap[API_HEALTH.search] || '未知';
+    log("info", `[Renren] ${currentTierName}端搜索提取结果数量: ${sourceAnimes.length} 有效结果数量：${filteredAnimes.length}`);
+
     // [标记开始] 进入批量处理模式
     // 注意：此处不再输出冗余日志，也不扣费。开启静默模式。
     this.isBatchMode = true;
@@ -584,26 +739,51 @@ export default class RenrenSource extends BaseSource {
   }
 
   async getEpisodeDanmu(id) {
-    // 1. 优先尝试 TV 接口
-    let danmuList = await this.getAppDanmu(id);
+    let danmuList = null;
+    const tiers = ['TV', 'WIN', 'WEB'];
     
-    // 2. 降级策略: TV 接口无数据时，尝试网页版接口
-    if (!danmuList || danmuList.length === 0) {
-       log("info", "[Renren] TV 弹幕接口失败或无数据，尝试降级网页接口");
-       danmuList = await this.getWebDanmuFallback(id);
-    }
-    
-    // 3. 返回原始数据列表，BaseSource 会自动调用本类的 formatComments 进行格式化
-    if (danmuList && Array.isArray(danmuList) && danmuList.length > 0) {
-      log("info", `[Renren] 成功获取 ${danmuList.length} 条弹幕`);
-      return danmuList;
+    let currentTierIndex = tiers.indexOf(API_HEALTH.danmu);
+    if (currentTierIndex === -1) currentTierIndex = 0;
+
+    // 智能路由检测与降级回路
+    for (let i = currentTierIndex; i < tiers.length; i++) {
+        const tier = tiers[i];
+        log("info", `[Renren] 尝试使用 ${tier} 端接口获取弹幕`);
+        
+        try {
+            if (tier === 'TV') {
+                danmuList = await this.getAppDanmu(id);
+            } else if (tier === 'WIN') {
+                danmuList = await this.getWinDanmu(id);
+            } else if (tier === 'WEB') {
+                danmuList = await this.getWebDanmuFallback(id);
+            }
+
+            if (danmuList && Array.isArray(danmuList) && danmuList.length > 0) {
+                // 记录当前健康的接口层级
+                if (API_HEALTH.danmu !== tier) {
+                    log("info", `[Renren] 弹幕域接口健康状态更新: ${API_HEALTH.danmu} -> ${tier}`);
+                    API_HEALTH.danmu = tier;
+                }
+                log("info", `[Renren] 成功获取 ${danmuList.length} 条弹幕 (${tier}端)`);
+                return danmuList;
+            } else {
+                log("info", `[Renren] ${tier} 弹幕接口失败或无数据，触发降级`);
+            }
+        } catch (e) {
+            log("info", `[Renren] ${tier} 弹幕接口异常，触发降级: ${e.message}`);
+        }
     }
 
+    // 所有端点轮换完毕仍未获取到数据，重置健康状态
+    log("info", `[Renren] 弹幕域所有降级接口均失败，重置健康状态至 TV 端`);
+    API_HEALTH.danmu = 'TV';
+    
     return [];
   }
 
   /**
-   * 获取网页版弹幕 (降级方法)
+   * 获取网页版弹幕 (终极降级方法)
    * 自动处理复合 ID 的解包
    */
   async getWebDanmuFallback(id) {
@@ -611,9 +791,6 @@ export default class RenrenSource extends BaseSource {
     if (String(id).includes("-")) {
       realEpisodeId = String(id).split("-")[1];
     }
-    
-    // 日志保留
-    log("info", `[Renren] 降级网页版弹幕，使用 ID: ${realEpisodeId}`);
 
     const ClientProfile = {
       user_agent: "Mozilla/5.0",
