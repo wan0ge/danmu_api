@@ -382,14 +382,24 @@ export default class RenrenSource extends BaseSource {
       const sign = generateSign(path, timestamp, queryParams, this.API_CONFIG.SECRET_KEY);
       const headers = this.generateTvHeaders(timestamp, sign);
 
-      // 请求旧域名 static-dm.qwdjapp.com
       const url = `https://${this.API_CONFIG.TV_DANMU_HOST}${path}`;
 
       const resp = await httpGet(url, {
         headers: headers,
         retries: 1,
+        validStatusCodes: [404] 
       });
 
+      // 校验 404 特征：若返回特定错误文本，说明服务器正常响应但该集确实无弹幕数据
+      if (resp.status === 404) {
+          if (resp.data && resp.data.error === "Document not found") {
+              return []; 
+          }
+          // 遭遇未知结构 404，判定为接口路径变更或服务器异常，触发降级
+          log("info", `[Renren] TV 弹幕接口返回未知 404 响应，疑似接口失效`);
+          return null; 
+      }
+      
       if (!resp.data) return null;
       
       const data = autoDecode(resp.data);
@@ -421,8 +431,23 @@ export default class RenrenSource extends BaseSource {
         'User-Agent': 'Boost.Beast/351'
       };
 
-      const resp = await httpGet(url, { headers, retries: 1 });
-      if (!resp.data) return [];
+      const resp = await httpGet(url, { 
+        headers, 
+        retries: 1, 
+        validStatusCodes: [404] 
+      });
+      
+      // 校验 404 特征：若返回特定错误文本，说明服务器正常响应但该集确实无弹幕数据
+      if (resp.status === 404) {
+          if (resp.data && resp.data.error === "Document not found") {
+              return []; 
+          }
+          // 遭遇未知结构 404，判定为接口路径变更或服务器异常，触发降级
+          log("info", `[Renren] WIN 弹幕接口返回未知 404 响应，疑似接口失效`);
+          return null; 
+      }
+
+      if (!resp.data) return null;
       
       const data = resp.data;
       if (Array.isArray(data)) return data;
@@ -759,16 +784,22 @@ export default class RenrenSource extends BaseSource {
                 danmuList = await this.getWebDanmuFallback(id);
             }
 
-            if (danmuList && Array.isArray(danmuList) && danmuList.length > 0) {
+            // 区分「请求异常(null)」与「正常但无数据([])」
+            if (danmuList !== null && Array.isArray(danmuList)) {
                 // 记录当前健康的接口层级
                 if (API_HEALTH.danmu !== tier) {
                     log("info", `[Renren] 弹幕域接口健康状态更新: ${API_HEALTH.danmu} -> ${tier}`);
                     API_HEALTH.danmu = tier;
                 }
-                log("info", `[Renren] 成功获取 ${danmuList.length} 条弹幕 (${tier}端)`);
+                
+                if (danmuList.length > 0) {
+                    log("info", `[Renren] 成功获取 ${danmuList.length} 条弹幕 (${tier}端)`);
+                } else {
+                    log("info", `[Renren] 该剧集暂无弹幕 (${tier}端)`);
+                }
                 return danmuList;
             } else {
-                log("info", `[Renren] ${tier} 弹幕接口失败或无数据，触发降级`);
+                log("info", `[Renren] ${tier} 弹幕接口失败，触发降级`);
             }
         } catch (e) {
             log("info", `[Renren] ${tier} 弹幕接口异常，触发降级: ${e.message}`);
@@ -807,8 +838,22 @@ export default class RenrenSource extends BaseSource {
     };
     
     try {
-      const fallbackResp = await this.renrenHttpGet(url, { headers });
-      if (!fallbackResp.data) return [];
+      const fallbackResp = await this.renrenHttpGet(url, { 
+        headers, 
+        validStatusCodes: [404] 
+      });
+      
+      // 校验 404 特征：若返回特定错误文本，说明服务器正常响应但该集确实无弹幕数据
+      if (fallbackResp.status === 404) {
+          if (fallbackResp.data && fallbackResp.data.error === "Document not found") {
+              return []; 
+          }
+          // 遭遇未知结构 404，判定为接口路径变更或服务器异常，触发失败逻辑
+          log("info", `[Renren] WEB 弹幕接口返回未知 404 响应，疑似接口失效`);
+          return null; 
+      }
+
+      if (!fallbackResp.data) return null;
       
       const data = autoDecode(fallbackResp.data);
       let list = [];
@@ -818,7 +863,7 @@ export default class RenrenSource extends BaseSource {
       return list;
     } catch (e) {
       log("info", `[Renren] 网页版弹幕降级失败: ${e.message}`);
-      return [];
+      return null;
     }
   }
 
@@ -941,11 +986,12 @@ export default class RenrenSource extends BaseSource {
     };
   }
 
-  async renrenHttpGet(url, { params = {}, headers = {} } = {}) {
+  async renrenHttpGet(url, { params = {}, headers = {}, validStatusCodes = [] } = {}) {
     const u = updateQueryString(url, params);
     const resp = await httpGet(u, {
       headers: headers,
       retries: 1,
+      validStatusCodes
     });
     return resp;
   }
