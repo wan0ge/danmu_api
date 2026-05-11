@@ -12,6 +12,12 @@ import { searchBangumiData } from '../utils/bangumi-data-util.js';
 // 获取Animeko弹幕（https://github.com/open-ani/animeko）
 // =====================
 
+// 接口健康状态缓存 (全局共享，跨请求持久化，实现业务级智能路由)
+// 链路层级规范: Danmu (GLOBAL -> CN)
+const API_HEALTH = {
+  danmu: 'GLOBAL'
+};
+
 /**
  * Animeko 源适配器 (基于 Bangumi API V0)
  * 提供深度元数据搜索、结果过滤及条目关系检测功能
@@ -333,7 +339,6 @@ export default class AnimekoSource extends BaseSource {
         });
 
         // 1. 结构校验：确保 resp.data.data 存在且为数组
-        // 对应您的 JSON: resp.data 存在，resp.data.data 是 [] (数组)，校验通过
         if (!resp || !resp.data || !Array.isArray(resp.data.data)) {
           if (offset === 0) {
              log("info", `[Animeko] Subject ${subjectId} 无剧集数据或响应异常`);
@@ -344,7 +349,6 @@ export default class AnimekoSource extends BaseSource {
         const currentBatch = resp.data.data;
 
         // 2. 空数据校验：如果没有数据，停止
-        // 对应您的 JSON: data 为 []，length 为 0，在此处 break 退出
         if (currentBatch.length === 0) {
           break;
         }
@@ -510,8 +514,11 @@ export default class AnimekoSource extends BaseSource {
       return [];
     }
 
-    const HOST_GLOBAL = "https://danmaku-global.myani.org";
-    const HOST_CN = "https://danmaku-cn.myani.org";
+    const endpoints = {
+      'GLOBAL': "https://danmaku-global.myani.org",
+      'CN': "https://danmaku-cn.myani.org"
+    };
+    const tiers = ['GLOBAL', 'CN'];
 
     // 定义内部通用请求函数
     const fetchDanmu = async (hostUrl) => {
@@ -530,22 +537,35 @@ export default class AnimekoSource extends BaseSource {
       }
     };
 
-    // 2. 优先尝试 Global 节点
-    let danmuList = await fetchDanmu(HOST_GLOBAL);
+    let danmuList = null;
+    let currentTierIndex = tiers.indexOf(API_HEALTH.danmu);
+    if (currentTierIndex === -1) currentTierIndex = 0;
 
-    // 3. 如果失败，降级尝试 CN 节点
-    if (!danmuList) {
-      log("info", `[Animeko] Global 节点获取失败/无数据，降级尝试 CN 节点... ID:${realId}`);
-      danmuList = await fetchDanmu(HOST_CN);
+    // 智能路由检测与降级回路
+    for (let i = currentTierIndex; i < tiers.length; i++) {
+        const tier = tiers[i];
+        const hostUrl = endpoints[tier];
+        log("info", `[Animeko] 尝试使用 ${tier} 节点获取弹幕`);
+
+        danmuList = await fetchDanmu(hostUrl);
+
+        if (danmuList && Array.isArray(danmuList)) {
+            // 记录当前健康的节点层级
+            if (API_HEALTH.danmu !== tier) {
+                log("info", `[Animeko] 弹幕域节点健康状态更新: ${API_HEALTH.danmu} -> ${tier}`);
+                API_HEALTH.danmu = tier;
+            }
+            log("info", `[Animeko] 成功获取弹幕，共 ${danmuList.length} 条 (${tier}节点)`);
+            return danmuList;
+        } else {
+            log("info", `[Animeko] ${tier} 节点获取失败/无数据，触发降级`);
+        }
     }
 
-    // 4. 返回结果或空数组
-    if (danmuList) {
-      log("info", `[Animeko] 成功获取弹幕，共 ${danmuList.length} 条`);
-      return danmuList;
-    }
+    // 所有节点轮换完毕仍未获取到数据，重置健康状态
+    log("info", `[Animeko] 弹幕域所有降级节点均失败，重置健康状态至 GLOBAL 节点`);
+    API_HEALTH.danmu = 'GLOBAL';
 
-    log("error", "[Animeko] 所有节点尝试均失败，无法获取弹幕");
     return [];
   }
 
