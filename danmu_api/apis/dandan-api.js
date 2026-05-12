@@ -320,11 +320,14 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       await updateLocalRedisCaches();
     }
 
+    // 构造响应 DTO：剥离合并产生的 links，确保接口纯净
+    const responseAnimes = curAnimes.map(({ links, ...pureAnime }) => pureAnime);
+
     return jsonResponse({
       errorCode: 0,
       success: true,
       errorMessage: "",
-      animes: curAnimes,
+      animes: responseAnimes,
     });
   }
 
@@ -512,17 +515,20 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       await updateLocalRedisCaches();
     }
 
+    // 构造响应 DTO：剥离合并产生的 links，确保接口纯净
+    const responseAnimes = curAnimes.map(({ links, ...pureAnime }) => pureAnime);
+
     // 缓存搜索结果
-    if (curAnimes.length > 0) {
+    if (responseAnimes.length > 0) {
       const cacheKey = querySeason !== null ? `${queryTitle}_S${querySeason}` : queryTitle;
-      setSearchCache(cacheKey, curAnimes, requestAnimeDetailsMap);
+      setSearchCache(cacheKey, responseAnimes, requestAnimeDetailsMap);
     }
 
     return jsonResponse({
       errorCode: 0,
       success: true,
       errorMessage: "",
-      animes: curAnimes,
+      animes: responseAnimes,
     });
 
 }
