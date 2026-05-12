@@ -1182,9 +1182,6 @@ export default class RenrenSource extends BaseSource {
             const openingLength = parseInt(playInfo.openingLength) || 0;
             // 综合判断：优先使用 startingLength（通常为前置广告时长），若为0则降级使用 openingLength
             adDurationMs = startingLength > 0 ? startingLength : (openingLength > 0 ? openingLength : 0);
-            if (adDurationMs > 0) {
-                log("info", `[Renren] 智能识别到前置广告/片头时长: ${adDurationMs}ms，将准备应用弹幕偏移 (ID=${id})`);
-            }
         }
     }
 
@@ -1224,8 +1221,9 @@ export default class RenrenSource extends BaseSource {
                     log("info", `[Renren] 该剧集暂无弹幕 (${tier}端)`);
                 }
 
-                // 将时长附带在返回的数组对象上供格式化时使用
+                // 将时长与ID附带在返回的数组对象上供格式化时使用
                 danmuList.adDurationMs = adDurationMs;
+                danmuList.episodeId = id;
                 return danmuList;
             } else {
                 log("info", `[Renren] ${tier} 弹幕接口失败，触发降级`);
@@ -1241,6 +1239,7 @@ export default class RenrenSource extends BaseSource {
     
     const emptyDanmuList = [];
     emptyDanmuList.adDurationMs = adDurationMs;
+    emptyDanmuList.episodeId = id;
     return emptyDanmuList;
   }
 
@@ -1296,9 +1295,12 @@ export default class RenrenSource extends BaseSource {
    */
   formatComments(comments) {
     const adDurationMs = comments.adDurationMs || 0;
+    const episodeId = comments.episodeId || "未知";
     const offsetSec = adDurationMs / 1000;
+    // 剔除统计器
+    let droppedCount = 0;
 
-    return comments.map(item => {
+    const formattedList = comments.map(item => {
       // 提取内容 (优先 d，兼容 content)
       let text = String(item.d || "");
       if (!text && item.content) text = String(item.content);
@@ -1311,7 +1313,10 @@ export default class RenrenSource extends BaseSource {
 
         // 弹幕前置偏移，去除广告导致的延后影响
         let t = meta.timestamp - offsetSec;
-        if (t < 0) return null; // 剔除偏移后处于负数时间的弹幕
+        if (t < 0) {
+            droppedCount++;
+            return null; 
+        }
 
         return {
           cid: Number(meta.contentId) || 0,
@@ -1322,5 +1327,9 @@ export default class RenrenSource extends BaseSource {
       }
       return null;
     }).filter(Boolean);
+    if (adDurationMs > 0) {
+        log("info", `[Renren] 识别到前置广告(${adDurationMs}ms)，已自动偏移时间轴。成功转换 ${formattedList.length} 条，剔除无效弹幕 ${droppedCount} 条 (ID=${episodeId})`);
+    }
+    return formattedList;
   }
 }
