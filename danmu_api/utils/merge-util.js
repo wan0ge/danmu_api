@@ -2,6 +2,7 @@ import { globals } from '../configs/globals.js';
 import { log as baseLog } from './log-util.js';
 import { addAnime } from './cache-util.js';
 import { simplized } from '../utils/zh-util.js';
+import { normalizeSpaces } from '../utils/common-util.js';
 
 // ==============================================================================
 //  源合并处理工具 (merge-util.js)
@@ -15,9 +16,9 @@ import { simplized } from '../utils/zh-util.js';
 //  [L6] 领域属性提取层      —— 季度标记、媒体类型、内容分类
 //  [L7] 领域冲突检测层      —— 标题冲突、季度冲突、日期冲突、覆盖率校验
 //  [L8] 集数处理层          —— 提取、过滤、对齐偏移、补全、沉底
-//  [L9] 核心匹配层          —— 上下文感知、集内容探测、副源检索
-//  [L10] 合并业务流程层     —— 合集探测、单任务执行
-//  [L11] 主入口             —— applyMergeLogic (三段式 Phase)
+//  [L9] 核心匹配层          —— 上下文感知、集内容探测、副源检索、映射表特权提权
+//  [L10] 合并业务流程层     —— 合集探测、映射表精确路由 (Custom Routes)、单任务执行
+//  [L11] 主入口             —— applyMergeLogic (动态源组合与三段式 Phase)
 //  [L12] 弹幕工具层         —— 时间轴对齐、弹幕合并
 // ==============================================================================
 
@@ -1741,13 +1742,104 @@ function probeContentMatch(primaryAnime, candidateAnime) {
 }
 
 /**
+ * 检测是否命中合并映射表中的强制特权规则 (Custom Merge Rule)
+ * 采用“严格完全匹配”策略。优化了对比文本构建逻辑，防止误删带括号的标题。
+ * 支持动态保留年份与元数据标签：只有当用户规则中显式声明了年份或标签时，才参与严格比对。
+ * @param {Object} pAnime - 主源番剧对象
+ * @param {Object} sAnime - 副源番剧对象
+ * @returns {Object|null} 命中的规则对象，未命中返回 null
+ */
+function getMatchingCustomRule(pAnime, sAnime) {
+    const rules = globals.customMergeRules || [];
+    if (rules.length === 0) return null;
+
+    const pSeason = getSeasonNumber(pAnime.animeTitle, pAnime.typeDescription, pAnime.aliases);
+    const sSeason = getSeasonNumber(sAnime.animeTitle, sAnime.typeDescription, sAnime.aliases);
+
+    // 动态构建用于完全匹配的对比文本
+    const buildComparable = (animeTitle, ruleTitle) => {
+        let cleanAnime = simplized(animeTitle || '').toLowerCase().replace(RegexStore.Clean.FROM_SUFFIX, '');
+        let cleanRule = simplized(ruleTitle || '').toLowerCase();
+
+        const hasYearInRule = /[\(（\[]?\d{4}[\)）\]]?/.test(cleanRule);
+        const hasTagsInRule = /【.*?】/.test(cleanRule) || /\[.*?\]/.test(cleanRule);
+
+        // 1. 如果规则里没写年份，去掉标题中的年份标签
+        if (!hasYearInRule) {
+            cleanAnime = cleanAnime.replace(/[\(（\[]\d{4}[\)）\]]/g, '');
+        }
+
+        // 2. 处理【】或 [] 标签。
+        // 如果规则没写标签，我们应该“提取”标题内容而不是盲目“删除”括号。
+        if (!hasTagsInRule) {
+            const startBracketMatch = cleanAnime.match(/^(?:【|\[)(.+?)(?:】|\])/);
+            if (startBracketMatch) {
+                const content = startBracketMatch[1];
+                // 排除常见的纯类型标签，提取真实的剧名
+                const typeKeywords = /^(TV|剧场版|劇場版|movie|film|anime|动漫|动画|电影|电视剧|连续剧|综艺|真人秀|纪录片|日剧|韩剧|美剧|英剧|泰剧|国产剧|港剧|台剧|短剧|微短剧|特摄|OVA|OAD|SP|AVC|HEVC|MP4|MKV)$/i;
+                
+                if (!typeKeywords.test(content)) {
+                    cleanAnime = cleanAnime.replace(startBracketMatch[0], content + ' ');
+                }
+            }
+            // 删掉剩余的纯元数据标签
+            cleanAnime = cleanAnime.replace(RegexStore.Clean.SOURCE_TAG, '').replace(/\[.*?\]/g, '');
+        }
+
+        // 3. 剥离季度和类型噪声
+        if (!cleanRule.includes('季') && !cleanRule.includes('season')) {
+            cleanAnime = cleanAnime.replace(RegexStore.Season.INFO_STRONG, '');
+        }
+        cleanAnime = cleanAnime.replace(RegexStore.Clean.MOVIE_KEYWORDS, '');
+
+        // 终极清洗：使用 common-util 的 normalizeSpaces 规范化所有标点与特殊符号
+        return {
+            target: normalizeSpaces(cleanAnime).replace(/\s+/g, ''),
+            rule: normalizeSpaces(cleanRule).replace(/\s+/g, '')
+        };
+    };
+
+    for (const rule of rules) {
+        // 提取基础源(Base Source)，并使用已导入的 DISPLAY_CONNECTOR 常量
+        const getBaseSource = (src) => String(src).split(DISPLAY_CONNECTOR)[0];
+        const rulePBaseSource = getBaseSource(rule.primary.source);
+        const ruleSBaseSource = getBaseSource(rule.secondary.source);
+
+        // 支持主副源可能已经是拼接过的源（如 "bilibili&dandan"）
+        const pSources = String(pAnime.source).split(DISPLAY_CONNECTOR);
+        const sSources = String(sAnime.source).split(DISPLAY_CONNECTOR);
+
+        // 校验来源是否符合 主->副 指向
+        if (!pSources.includes(rulePBaseSource) || !sSources.includes(ruleSBaseSource)) continue;
+
+        const pComp = buildComparable(pAnime.animeTitle, rule.primary.title);
+        const sComp = buildComparable(sAnime.animeTitle, rule.secondary.title);
+
+        // 严格完全匹配 (Exact Match)
+        const isPTitleMatch = (pComp.target === pComp.rule);
+        const isSTitleMatch = (sComp.target === sComp.rule);
+
+        if (!isPTitleMatch || !isSTitleMatch) continue;
+
+        // 季度精确校验
+        if (rule.primary.season !== null && (pSeason || 1) !== rule.primary.season) continue;
+        if (rule.secondary.season !== null && (sSeason || 1) !== rule.secondary.season) continue;
+
+        return rule;
+    }
+    return null;
+}
+
+/**
  * 在副源列表中寻找最佳匹配的动画对象列表 (Main Matcher)
  * 完整匹配流程：
+ *   0. 映射表特权检测（最高优先级：强制放行并标记，或直接 block 阻断）
  *   1. 上下文感知续作检测（阻断 S1 vs S2 的错误关联）
- *   2. 各类冲突检测（媒体类型、之字结构、剧场版、日期、季度）
- *   3. 主副别名交叉比对 + 综合相似度计算
- *   4. 集内容 Probe（可覆盖相似度）
- *   5. Tier 筛选（中文优先、Part 宽松）
+ *   2. 全局越界阻断（防范映射表动态源污染常规匹配）
+ *   3. 各类冲突检测（媒体类型、之字结构、剧场版、日期、季度）
+ *   4. 主副别名交叉比对 + 综合相似度计算
+ *   5. 集内容 Probe（可覆盖相似度）
+ *   6. Tier 筛选（特权通道无条件豁免、中文优先、Part 宽松）
  *
  * @param {Object} primaryAnime        - 主源番剧对象
  * @param {Array}  secondaryList       - 副源列表（同源内）
@@ -1787,6 +1879,35 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
 
     for (const secAnime of secondaryList) {
         const rawSecTitle     = secAnime.animeTitle || '';
+        
+        // 检查是否命中合并映射表中的强制特权规则
+        const customRule = getMatchingCustomRule(primaryAnime, secAnime);
+        if (customRule) {
+            if (customRule.action === 'block') {
+                logReason(rawSecTitle, `被映射表 [×] 明确禁止与主源合并`);
+                continue;
+            }
+
+            const secLang = getLanguageType(rawSecTitle);
+            // 注入 isCustomMapped 标识
+            validCandidates.push({ 
+                anime: secAnime, 
+                score: 1.0, 
+                lang: secLang, 
+                debugTitle: rawSecTitle,
+                isCustomMapped: true 
+            });
+            log("info", `[Merge-Check] 合并映射表特权放行: [${primaryAnime.source}] ${rawPrimaryTitle} <-> [${secAnime.source}] ${rawSecTitle}`);
+            continue; // 命中特权规则直接跳过后续所有的之字结构、剧场版、维度冲突等检测
+        }
+
+        // 校验全局配对权限：防范映射表动态注入的源污染常规匹配
+        const isGlobalPair = (globals.mergeSourcePairs || []).some(g => g.primary === primaryAnime.source && g.secondaries.includes(secAnime.source));
+        if (!isGlobalPair) {
+            logReason(rawSecTitle, `未在全局源合并(MERGE_SOURCE_PAIRS)中配置此组合，且未命中特权映射规则，越权阻断`);
+            continue;
+        }
+
         const isSecCollection = collectionAnimeIds.has(secAnime.animeId);
         const isAnyCollection = isPrimaryCollection || isSecCollection;
         const isSecIgnoredYear= secAnime.source === 'hanjutv';
@@ -1939,10 +2060,14 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         }
     }
 
-    if (validCandidates.length === 0 || maxScore < Thresholds.SIMILARITY_MIN) return [];
+    // 特权通道放行时，不比较 SIMILARITY_MIN
+    if (validCandidates.length === 0 || (maxScore < Thresholds.SIMILARITY_MIN && !validCandidates.some(c => c.isCustomMapped))) return [];
 
     // ── Tier 筛选：梯度过滤，保留合理竞争者 ─────────────────────────────
     const finalResults = validCandidates.filter(candidate => {
+        // 映射表特权通道无条件放行
+        if (candidate.isCustomMapped) return true;
+
         // 精确匹配层（容差极小）
         if (candidate.score >= (maxScore - Thresholds.TIER_DEFAULT)) return true;
         // 中文优先层（CN 资源可宽松保留）
@@ -1960,7 +2085,12 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         return false;
     });
 
-    finalResults.sort((a, b) => b.score - a.score);
+    // 排序：特权置顶，其余按分数降序
+    finalResults.sort((a, b) => {
+        if (a.isCustomMapped && !b.isCustomMapped) return -1;
+        if (!a.isCustomMapped && b.isCustomMapped) return 1;
+        return b.score - a.score;
+    });
     return finalResults.map(item => item.anime);
 }
 
@@ -2126,9 +2256,9 @@ function detectCollectionCandidates(curAnimes) {
  *   2. 合集时序接管（按季数升序排列匹配队列）
  *   3. 小数集数沉底（防中间插值集破坏偏移计算）
  *   4. 合集切片（从大合集中提取对应季度的子集参与对齐）
- *   5. 最佳对齐偏移计算
- *   6. 共识差精准映射（正片制导 + 番外制导）
- *   7. 覆盖率校验
+ *   5. 最佳对齐偏移计算 / 映射表精确路由计算 (Custom Routes)
+ *   6. 智能对齐映射（映射表强制制导 > 共识差正片制导 > 番外文本制导）
+ *   7. 覆盖率校验（映射表特权可豁免占比校验）
  *   8. 原子化元数据合并（别名、标题、来源标签）
  *   9. 番外沉底排序
  *  10. 重复签名检测（防一对多导致的重复合并结果）
@@ -2206,13 +2336,37 @@ async function processMergeTask(params) {
     for (const secSource of availableSecondaries) {
         let secondaryItems = curAnimes.filter(a => {
             if (a.source !== secSource) return false;
+
+            // 映射表特权前置：必须位于 isPrimaryCollection 之前，防止合集特权绕过阻断规则
+            const rule = getMatchingCustomRule(pAnime, a);
+            if (rule) {
+                if (rule.action === 'block') {
+                    log("info", `${logPrefix} 拦截: 副源 [${a.source}] ${a.animeTitle} 被映射表 [×] 规则明确阻断`);
+                    return false; 
+                }
+                return true;
+            }
+
             // 合集主源特权：当主源为合集时，允许无视消耗状态，复用已消费的副源拼凑完整季度
             if (isPrimaryCollection) return true;
+
             const isConsumed     = groupConsumedIds.has(a.animeId);
             const isAllowedReuse = allowReuseIds && allowReuseIds.has(a.animeId);
             if (isConsumed && !isAllowedReuse) return false;
             return true;
         });
+
+        // 实体去重：防范部分源接口返回重复记录（同 animeId），导致在单一匹配生命周期内被反复合并同一资源
+        const uniqueSecItems = [];
+        const seenIds = new Set();
+        for (const item of secondaryItems) {
+            if (!seenIds.has(item.animeId)) {
+                seenIds.add(item.animeId);
+                uniqueSecItems.push(item);
+            }
+        }
+        secondaryItems = uniqueSecItems;
+
         if (limitSecondaryLang) secondaryItems = secondaryItems.filter(a => getLanguageType(a.animeTitle) === limitSecondaryLang);
         // 同源内 CN 资源后置（优先尝试与 JP/Unspecified 版本配对）
         if (secondaryItems.length > 1) {
@@ -2229,7 +2383,7 @@ async function processMergeTask(params) {
     }
 
     if (allMatches.length > 0) {
-        // ── 跨源合集时序接管 ────────────────────────────────────────────────
+        // ── 跨源合集时序接管 ─────────────────────────────────────────────────────
         // 当主源或任意匹配项为合集时，强制按季数升序排列匹配队列，
         // 保障切片推断严格自举（S1 的进度会为 S2 的切片提供锚点）
         if (allMatches.length > 1 && (isPrimaryCollection || allMatches.some(m => collectionAnimeIds.has(m.animeId)))) {
@@ -2248,10 +2402,18 @@ async function processMergeTask(params) {
 
         for (const match of allMatches) {
             const secSource = match.source;
+            // 识别合并映射表中用户自定义的特权路由规则
+            const customRule = getMatchingCustomRule(pAnime, match);
+            if (customRule && customRule.action === 'block') {
+                log("info", `${logPrefix} [安全网拦截] 关联取消: [${currentPrimarySource}] ${pAnime.animeTitle} <-> [${secSource}] ${match.animeTitle} 被明确阻断`);
+                continue;
+            }
+
             // 非合集主源的二次消耗校验（合集主源直接跳过）
             if (!isPrimaryCollection) {
                 const isReuse = allowReuseIds && allowReuseIds.has(match.animeId);
-                if (!isReuse && groupConsumedIds.has(match.animeId)) continue;
+                // 特权放行：如果命中映射表规则，即使已消费也放行进入复用组装
+                if (!isReuse && !customRule && groupConsumedIds.has(match.animeId)) continue;
             }
 
             const globalCachedMatch = globals.animes.find(a => String(a.animeId) === String(match.animeId));
@@ -2347,169 +2509,271 @@ async function processMergeTask(params) {
                 activeMLinks    = res.slicedList; sliceStartS = res.sliceStart;
             }
 
-            // ── 对齐偏移计算 ─────────────────────────────────────────────────
-            const bestOffsetLocal = findBestAlignmentOffset(activePLinks, activeMLinks, seriesLangA, seriesLangB, currentPrimarySource, secSource, pAnime.animeTitle, derivedMatch.animeTitle);
-            const offset          = bestOffsetLocal + sliceStartP - sliceStartS;
-            if (offset !== 0) log("info", `${logPrefix} 集数自动对齐 (${secSource}): Offset=${offset} (P:${filteredPLinksWithIndex.length}, S:${filteredMLinksWithIndex.length})`);
-
             // 每次合并新副源都生成新的合并 ID（保持唯一性）
             derivedAnime.animeId  = generateSafeMergedId(derivedAnime.animeId, match.animeId, groupFingerprint);
             derivedAnime.bangumiId = String(derivedAnime.animeId);
 
             let mergedCount        = 0;
             const redundantS       = identifyRedundantTitle(derivedMatch.links, derivedMatch.animeTitle, secSource);
-
-            // ── 智能对齐策略（共识差计算） ───────────────────────────────────
             // 广义番外判断：isSpecial / isStrictSpecial / 小数集数
             const isBroadSpecial = (info) => info.isSpecial || info.isStrictSpecial || (info.num !== null && info.num % 1 !== 0);
+            const kToPIndexMap = new Map(); // 用于记录副源到主源的索引映射，供合集进度记录使用
+            let offset = 0; // 保留供非特权情况和合集索引修正使用
 
-            // 1. 提取共识集数差（consensus shift）
-            // 通过所有正片对的集数差加权投票，找出最可信的"主源集数 - 副源集数"偏移量
-            const shiftCounts = new Map();
-            let lastPNum = null;
-            filteredMLinksWithIndex.forEach((sItem, k) => {
-                const pItem  = filteredPLinksWithIndex[k + offset];
-                if (!pItem) return;
-                const titleP = getTempTitle(pItem.link.title || pItem.link.name, redundantP);
-                const titleS = getTempTitle(sItem.link.title || sItem.link.name, redundantS);
-                const infoP  = extractEpisodeInfo(titleP, currentPrimarySource);
-                const infoS  = extractEpisodeInfo(titleS, secSource);
-                if (infoP.num === null || infoS.num === null || isBroadSpecial(infoP) || isBroadSpecial(infoS)) return;
-                const diff   = infoP.num - infoS.num;
-                const sim    = calculateSimilarity(cleanEpisodeText(titleP), cleanEpisodeText(titleS));
-                // 权重计算：基础(1.0) + 文本奖励(1.0)
-                let weight   = 1.0 + (sim > 0.45 ? 1.0 : 0);
-                // 断层惩罚：主源正片跳集，说明此段不可信（如占位集/异构区）
-                if (lastPNum !== null && (infoP.num - lastPNum > 1)) {
-                    weight = 0.1;
-                } else {
-                    lastPNum = infoP.num;
+            if (customRule && customRule.hasRoutes) {
+                // ── 智能对齐策略（特权映射表介入） ─────────────────────────────
+                log("info", `${logPrefix} 启用映射表精确路由: ${pAnime.animeTitle} <-> ${match.animeTitle}`);
+
+                // 计算基准推断偏移量，为未匹配到的落单集数提供准确的相对位置参考（头/尾/特殊分类），确保它们不被无脑沉底
+                const bestOffsetLocal = findBestAlignmentOffset(activePLinks, activeMLinks, seriesLangA, seriesLangB, currentPrimarySource, secSource, pAnime.animeTitle, derivedMatch.animeTitle);
+                const fallbackOffset  = bestOffsetLocal + sliceStartP - sliceStartS;
+                
+                // 将计算出的推断偏移赋给外层变量，保障后续合集进度的精准计算
+                offset = fallbackOffset;
+
+                // 构建集数强映射哈希表
+                const sToPMap = new Map();
+                for (const route of customRule.routes) {
+                    const sLen = route.sec.end - route.sec.start + 1;
+                    const pLen = route.prim.end - route.prim.start + 1;
+                    if (sLen !== pLen) {
+                        log("warn", `[映射表] 路由区间跨度不对等，跳过此段: E${route.sec.start}~E${route.sec.end} > E${route.prim.start}~E${route.prim.end}`);
+                        continue;
+                    }
+                    for (let i = 0; i < sLen; i++) {
+                        sToPMap.set(route.sec.start + i, route.prim.start + i);
+                    }
                 }
-                shiftCounts.set(diff, (shiftCounts.get(diff) || 0) + weight);
-            });
-            const consensusShift = shiftCounts.size > 0
-                ? [...shiftCounts.entries()].reduce((max, curr) => curr[1] > max[1] ? curr : max)[0]
-                : null;
 
-            // 2. 预处理主源的广义番外索引池（供番外制导使用）
-            const pSpecialIndices = filteredPLinksWithIndex.reduce((acc, pItem, i) => {
-                const info = extractEpisodeInfo(getTempTitle(pItem.link.title || pItem.link.name, redundantP), currentPrimarySource);
-                if (isBroadSpecial(info) && !info.isPV) acc.push(i);
-                return acc;
-            }, []);
-            let sSpecialCounter = 0;
+                for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
+                    const sItem = filteredMLinksWithIndex[k];
+                    const sourceLink = sItem.link;
+                    const sTitleShort = sourceLink.name || sourceLink.title || `Index ${k}`;
+                    const cleanTitleS = getTempTitle(sourceLink.title || sourceLink.name, redundantS);
+                    const infoS = extractEpisodeInfo(cleanTitleS, secSource);
 
-            // 3. 执行智能映射
-            for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
-                let pIndex          = k + offset;
-                const sourceLinkItem = filteredMLinksWithIndex[k];
-                const sourceLink    = sourceLinkItem.link;
-                const sTitleShort   = sourceLink.name || sourceLink.title || `Index ${k}`;
-                const cleanTitleS   = getTempTitle(sourceLink.title || sourceLink.name, redundantS);
-                const infoS         = extractEpisodeInfo(cleanTitleS, secSource);
-                const orphanItem    = { link: sourceLink, originalIndex: sourceLinkItem.originalIndex, relativeIndex: pIndex, info: infoS };
-                const broadSpecialS = isBroadSpecial(infoS);
+                    const orphanItem = { link: sourceLink, originalIndex: sItem.originalIndex, relativeIndex: -1, info: infoS };
 
-                if (consensusShift !== null && infoS.num !== null && !broadSpecialS) {
-                    // [正片制导] 基于共识差精确定位主源对应集
-                    const targetNum = infoS.num + consensusShift;
-                    pIndex = filteredPLinksWithIndex.findIndex(pItem => {
+                    // 提取集数：优先使用标题中提取的数字，若提取为空（如电影/单集）则回退使用当前正片列表的自然序列索引
+                    let sNum = infoS.num;
+                    if (sNum === null && !infoS.isStrictSpecial) {
+                        sNum = k + 1;
+                    }
+
+                    // 路由隔离机制：未在规则内的集数使用推断的 fallbackOffset 以获得合法索引，交由 stitchUnmatchedEpisodes 接管
+                    if (sNum === null || !sToPMap.has(sNum)) {
+                        orphanItem.relativeIndex = k + fallbackOffset;
+                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [未路由落单] ${sTitleShort} (应用推断偏移位置)` });
+                        orphanedEpisodes.push(orphanItem);
+                        continue;
+                    }
+
+                    const targetPNum = sToPMap.get(sNum);
+                    const pIndex = filteredPLinksWithIndex.findIndex((pItem, idx) => {
                         const infoP = extractEpisodeInfo(getTempTitle(pItem.link.title || pItem.link.name, redundantP), currentPrimarySource);
-                        return infoP.num === targetNum && !isBroadSpecial(infoP);
+                        let pNum = infoP.num;
+                        if (pNum === null && !infoP.isStrictSpecial) {
+                            pNum = idx + 1;
+                        }
+                        return pNum === targetPNum && !infoP.isSpecial && !infoP.isStrictSpecial;
                     });
+
                     if (pIndex !== -1) {
+                        kToPIndexMap.set(k, pIndex);
                         orphanItem.relativeIndex = pIndex;
-                    } else {
-                        // 未找到精确匹配：找最近的前一个正片作为插入锚点
-                        let closestIdx = -0.5;
-                        for (let i = filteredPLinksWithIndex.length - 1; i >= 0; i--) {
-                            const infoP = extractEpisodeInfo(getTempTitle(filteredPLinksWithIndex[i].link.title || filteredPLinksWithIndex[i].link.name, redundantP), currentPrimarySource);
-                            if (infoP.num !== null && !infoP.isSpecial && infoP.num < targetNum) {
-                                closestIdx = i; break;
-                            }
+                        const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
+                        const targetLink = derivedAnime.links[originalPIndex];
+                        const pTitleShort = targetLink.name || targetLink.title || `Index ${originalPIndex}`;
+
+                        // ── 执行 URL 合并 ────────────────────────────────────────
+                        const idB = sanitizeUrl(sourceLink.url);
+                        let currentUrl = targetLink.url;
+                        const secPart = `${secSource}:${idB}`;
+                        if (!currentUrl.includes(MERGE_DELIMITER)) {
+                            if (!currentUrl.startsWith(currentPrimarySource + ':')) currentUrl = `${currentPrimarySource}:${currentUrl}`;
                         }
-                        orphanItem.relativeIndex = closestIdx + (k * 0.001) + 0.1;
-                    }
-                } else if (broadSpecialS) {
-                    // [番外制导] 优先文本查重（同类番外名字相同），其次顺序映射
-                    let bestPIdx  = -1, bestSim = 0.65;
-                    const cleanEpS = cleanEpisodeText(cleanTitleS);
-                    for (const pIdx of pSpecialIndices) {
-                        const pTitle = getTempTitle(filteredPLinksWithIndex[pIdx].link.title || filteredPLinksWithIndex[pIdx].link.name, redundantP);
-                        const infoP  = extractEpisodeInfo(pTitle, currentPrimarySource);
-                        if (infoS.isPV !== infoP.isPV) continue; // PV 与非 PV 不互通
-                        const sim    = calculateSimilarity(cleanEpS, cleanEpisodeText(pTitle));
-                        if (sim > bestSim) { bestSim = sim; bestPIdx = pIdx; }
-                    }
-                    if (bestPIdx === -1 && !infoS.isPV && sSpecialCounter < pSpecialIndices.length) {
-                        bestPIdx = pSpecialIndices[sSpecialCounter];
-                    }
-                    if (!infoS.isPV) sSpecialCounter++;
-                    pIndex = bestPIdx;
-                    orphanItem.relativeIndex = pIndex !== -1 ? pIndex : filteredPLinksWithIndex.length + (k * 0.001);
-                } else {
-                    orphanItem.relativeIndex = pIndex !== -1 ? pIndex : (k + offset);
-                }
+                        const newMergedUrl = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
 
-                if (pIndex >= 0 && pIndex < filteredPLinksWithIndex.length) {
-                    const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
-                    const targetLink     = derivedAnime.links[originalPIndex];
-                    const pTitleShort    = targetLink.name || targetLink.title || `Index ${originalPIndex}`;
-                    const cleanTitleP    = getTempTitle(targetLink.title, redundantP);
-                    const specialP       = getSpecialEpisodeType(cleanTitleP);
-                    const specialS       = getSpecialEpisodeType(cleanTitleS);
-                    const infoP          = extractEpisodeInfo(cleanTitleP, currentPrimarySource);
-
-                    // PV 不匹配正片
-                    if (infoS.isPV && !specialP) {
-                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (PV不匹配正片)` });
-                        orphanedEpisodes.push(orphanItem);
-                        continue;
-                    }
-                    // 特殊集类型不一致
-                    if (specialP !== specialS) {
-                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (特殊集类型不匹配)` });
-                        orphanedEpisodes.push(orphanItem);
-                        continue;
-                    }
-                    // 正片与番外强阻断：isStrictSpecial 或小数集视为"强番外属性"，不与纯正片互通
-                    const strictOrDecimalP = infoP.isStrictSpecial || (infoP.num !== null && infoP.num % 1 !== 0);
-                    const strictOrDecimalS = infoS.isStrictSpecial || (infoS.num !== null && infoS.num % 1 !== 0);
-                    const isRegularP       = !infoP.isSpecial && (infoP.num === null || infoP.num % 1 === 0);
-                    const isRegularS       = !infoS.isSpecial && (infoS.num === null || infoS.num % 1 === 0);
-                    if ((strictOrDecimalP && isRegularS) || (strictOrDecimalS && isRegularP)) {
-                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (正片与番外阻断)` });
-                        orphanedEpisodes.push(orphanItem);
-                        continue;
-                    }
-
-                    // ── 执行 URL 合并 ────────────────────────────────────────
-                    const idB         = sanitizeUrl(sourceLink.url);
-                    let currentUrl    = targetLink.url;
-                    const secPart     = `${secSource}:${idB}`;
-                    if (!currentUrl.includes(MERGE_DELIMITER)) {
-                        if (!currentUrl.startsWith(currentPrimarySource + ':')) currentUrl = `${currentPrimarySource}:${currentUrl}`;
-                    }
-                    const newMergedUrl = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
-
-                    // ── 合并标题标签 ─────────────────────────────────────────
-                    let newMergedTitle = targetLink.title;
-                    if (newMergedTitle) {
-                        let sLabel = secSource;
-                        if (sourceLink.title) {
-                            const sMatch = sourceLink.title.match(/^【([^】\d]+)(?:\d*)】/);
+                        // ── 合并标题标签 ─────────────────────────────────────────
+                        let newMergedTitle = targetLink.title;
+                        if (newMergedTitle) {
+                            let sLabel = secSource;
+                            const sMatch = (sourceLink.title || '').match(/^【([^】\d]+)(?:\d*)】/);
                             if (sMatch) sLabel = sMatch[1].trim();
+                            newMergedTitle = newMergedTitle.replace(/^【([^】]+)】/, (m, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
                         }
-                        newMergedTitle = newMergedTitle.replace(/^【([^】]+)】/, (match, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
+
+                        mappingEntries.push({ idx: pIndex, text: `   [已路由映射] ${pTitleShort} <-> ${sTitleShort} (Rule: E${sNum}>E${targetPNum})` });
+                        matchedPIndices.add(pIndex);
+                        mergedCount++;
+                        pendingMutations.push({ linkIndex: originalPIndex, newUrl: newMergedUrl, newTitle: newMergedTitle });
+                    } else {
+                        // 目标找不到时，同样应用推断偏移以正常处理落单集数
+                        orphanItem.relativeIndex = k + fallbackOffset;
+                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [路由失败] 主源找不到 E${targetPNum} <-> ${sTitleShort}` });
+                        orphanedEpisodes.push(orphanItem);
+                    }
+                }
+            } else {
+                if (customRule) {
+                    log("info", `${logPrefix} 命中映射表常规合并: [${secSource}] ${match.animeTitle} -> [${currentPrimarySource}] ${pAnime.animeTitle} (已免检放行，交由系统自动对齐)`);
+                }
+                
+                // ── 对齐偏移计算 ─────────────────────────────────────────────────
+                const bestOffsetLocal = findBestAlignmentOffset(activePLinks, activeMLinks, seriesLangA, seriesLangB, currentPrimarySource, secSource, pAnime.animeTitle, derivedMatch.animeTitle);
+                offset                = bestOffsetLocal + sliceStartP - sliceStartS;
+                if (offset !== 0) log("info", `${logPrefix} 集数自动对齐 (${secSource}): Offset=${offset} (P:${filteredPLinksWithIndex.length}, S:${filteredMLinksWithIndex.length})`);
+
+                // ── 智能对齐策略（共识差计算） ───────────────────────────────────
+                // 1. 提取共识集数差（consensus shift）
+                // 通过所有正片对的集数差加权投票，找出最可信的"主源集数 - 副源集数"偏移量
+                const shiftCounts = new Map();
+                let lastPNum = null;
+                filteredMLinksWithIndex.forEach((sItem, k) => {
+                    const pItem  = filteredPLinksWithIndex[k + offset];
+                    if (!pItem) return;
+                    const titleP = getTempTitle(pItem.link.title || pItem.link.name, redundantP);
+                    const titleS = getTempTitle(sItem.link.title || sItem.link.name, redundantS);
+                    const infoP  = extractEpisodeInfo(titleP, currentPrimarySource);
+                    const infoS  = extractEpisodeInfo(titleS, secSource);
+                    if (infoP.num === null || infoS.num === null || isBroadSpecial(infoP) || isBroadSpecial(infoS)) return;
+                    const diff   = infoP.num - infoS.num;
+                    const sim    = calculateSimilarity(cleanEpisodeText(titleP), cleanEpisodeText(titleS));
+                    // 权重计算：基础(1.0) + 文本奖励(1.0)
+                    let weight   = 1.0 + (sim > 0.45 ? 1.0 : 0);
+                    // 断层惩罚：主源正片跳集，说明此段不可信（如占位集/异构区）
+                    if (lastPNum !== null && (infoP.num - lastPNum > 1)) {
+                        weight = 0.1;
+                    } else {
+                        lastPNum = infoP.num;
+                    }
+                    shiftCounts.set(diff, (shiftCounts.get(diff) || 0) + weight);
+                });
+                const consensusShift = shiftCounts.size > 0
+                    ? [...shiftCounts.entries()].reduce((max, curr) => curr[1] > max[1] ? curr : max)[0]
+                    : null;
+
+                // 2. 预处理主源的广义番外索引池（供番外制导使用）
+                const pSpecialIndices = filteredPLinksWithIndex.reduce((acc, pItem, i) => {
+                    const info = extractEpisodeInfo(getTempTitle(pItem.link.title || pItem.link.name, redundantP), currentPrimarySource);
+                    if (isBroadSpecial(info) && !info.isPV) acc.push(i);
+                    return acc;
+                }, []);
+                let sSpecialCounter = 0;
+
+                // 3. 执行智能映射
+                for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
+                    let pIndex          = k + offset;
+                    const sourceLinkItem = filteredMLinksWithIndex[k];
+                    const sourceLink    = sourceLinkItem.link;
+                    const sTitleShort   = sourceLink.name || sourceLink.title || `Index ${k}`;
+                    const cleanTitleS   = getTempTitle(sourceLink.title || sourceLink.name, redundantS);
+                    const infoS         = extractEpisodeInfo(cleanTitleS, secSource);
+                    const orphanItem    = { link: sourceLink, originalIndex: sourceLinkItem.originalIndex, relativeIndex: pIndex, info: infoS };
+                    const broadSpecialS = isBroadSpecial(infoS);
+
+                    if (consensusShift !== null && infoS.num !== null && !broadSpecialS) {
+                        // [正片制导] 基于共识差精确定位主源对应集
+                        const targetNum = infoS.num + consensusShift;
+                        pIndex = filteredPLinksWithIndex.findIndex(pItem => {
+                            const infoP = extractEpisodeInfo(getTempTitle(pItem.link.title || pItem.link.name, redundantP), currentPrimarySource);
+                            return infoP.num === targetNum && !isBroadSpecial(infoP);
+                        });
+                        if (pIndex !== -1) {
+                            orphanItem.relativeIndex = pIndex;
+                        } else {
+                            // 未找到精确匹配：找最近的前一个正片作为插入锚点
+                            let closestIdx = -0.5;
+                            for (let i = filteredPLinksWithIndex.length - 1; i >= 0; i--) {
+                                const infoP = extractEpisodeInfo(getTempTitle(filteredPLinksWithIndex[i].link.title || filteredPLinksWithIndex[i].link.name, redundantP), currentPrimarySource);
+                                if (infoP.num !== null && !infoP.isSpecial && infoP.num < targetNum) {
+                                    closestIdx = i; break;
+                                }
+                            }
+                            orphanItem.relativeIndex = closestIdx + (k * 0.001) + 0.1;
+                        }
+                    } else if (broadSpecialS) {
+                        // [番外制导] 优先文本查重（同类番外名字相同），其次顺序映射
+                        let bestPIdx  = -1, bestSim = 0.65;
+                        const cleanEpS = cleanEpisodeText(cleanTitleS);
+                        for (const pIdx of pSpecialIndices) {
+                            const pTitle = getTempTitle(filteredPLinksWithIndex[pIdx].link.title || filteredPLinksWithIndex[pIdx].link.name, redundantP);
+                            const infoP  = extractEpisodeInfo(pTitle, currentPrimarySource);
+                            if (infoS.isPV !== infoP.isPV) continue; // PV 与非 PV 不互通
+                            const sim    = calculateSimilarity(cleanEpS, cleanEpisodeText(pTitle));
+                            if (sim > bestSim) { bestSim = sim; bestPIdx = pIdx; }
+                        }
+                        if (bestPIdx === -1 && !infoS.isPV && sSpecialCounter < pSpecialIndices.length) {
+                            bestPIdx = pSpecialIndices[sSpecialCounter];
+                        }
+                        if (!infoS.isPV) sSpecialCounter++;
+                        pIndex = bestPIdx;
+                        orphanItem.relativeIndex = pIndex !== -1 ? pIndex : filteredPLinksWithIndex.length + (k * 0.001);
+                    } else {
+                        orphanItem.relativeIndex = pIndex !== -1 ? pIndex : (k + offset);
                     }
 
-                    mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [匹配] ${pTitleShort} <-> ${sTitleShort}` });
-                    matchedPIndices.add(pIndex);
-                    mergedCount++;
-                    pendingMutations.push({ linkIndex: originalPIndex, newUrl: newMergedUrl, newTitle: newMergedTitle });
-                } else {
-                    mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [落单] (主源越界) <-> ${sTitleShort}` });
-                    orphanedEpisodes.push(orphanItem);
+                    if (pIndex >= 0 && pIndex < filteredPLinksWithIndex.length) {
+                        kToPIndexMap.set(k, pIndex);
+                        const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
+                        const targetLink     = derivedAnime.links[originalPIndex];
+                        const pTitleShort    = targetLink.name || targetLink.title || `Index ${originalPIndex}`;
+                        const cleanTitleP    = getTempTitle(targetLink.title, redundantP);
+                        const specialP       = getSpecialEpisodeType(cleanTitleP);
+                        const specialS       = getSpecialEpisodeType(cleanTitleS);
+                        const infoP          = extractEpisodeInfo(cleanTitleP, currentPrimarySource);
+
+                        // PV 不匹配正片
+                        if (infoS.isPV && !specialP) {
+                            mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (PV不匹配正片)` });
+                            orphanedEpisodes.push(orphanItem);
+                            continue;
+                        }
+                        // 特殊集类型不一致
+                        if (specialP !== specialS) {
+                            mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (特殊集类型不匹配)` });
+                            orphanedEpisodes.push(orphanItem);
+                            continue;
+                        }
+                        // 正片与番外强阻断：isStrictSpecial 或小数集视为"强番外属性"，不与纯正片互通
+                        const strictOrDecimalP = infoP.isStrictSpecial || (infoP.num !== null && infoP.num % 1 !== 0);
+                        const strictOrDecimalS = infoS.isStrictSpecial || (infoS.num !== null && infoS.num % 1 !== 0);
+                        const isRegularP       = !infoP.isSpecial && (infoP.num === null || infoP.num % 1 === 0);
+                        const isRegularS       = !infoS.isSpecial && (infoS.num === null || infoS.num % 1 === 0);
+                        if ((strictOrDecimalP && isRegularS) || (strictOrDecimalS && isRegularP)) {
+                            mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [略过] ${pTitleShort} =/= ${sTitleShort} (正片与番外阻断)` });
+                            orphanedEpisodes.push(orphanItem);
+                            continue;
+                        }
+
+                        // ── 执行 URL 合并 ────────────────────────────────────────
+                        const idB         = sanitizeUrl(sourceLink.url);
+                        let currentUrl    = targetLink.url;
+                        const secPart     = `${secSource}:${idB}`;
+                        if (!currentUrl.includes(MERGE_DELIMITER)) {
+                            if (!currentUrl.startsWith(currentPrimarySource + ':')) currentUrl = `${currentPrimarySource}:${currentUrl}`;
+                        }
+                        const newMergedUrl = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
+
+                        // ── 合并标题标签 ─────────────────────────────────────────
+                        let newMergedTitle = targetLink.title;
+                        if (newMergedTitle) {
+                            let sLabel = secSource;
+                            if (sourceLink.title) {
+                                const sMatch = sourceLink.title.match(/^【([^】\d]+)(?:\d*)】/);
+                                if (sMatch) sLabel = sMatch[1].trim();
+                            }
+                            newMergedTitle = newMergedTitle.replace(/^【([^】]+)】/, (match, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
+                        }
+
+                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [匹配] ${pTitleShort} <-> ${sTitleShort}` });
+                        matchedPIndices.add(pIndex);
+                        mergedCount++;
+                        pendingMutations.push({ linkIndex: originalPIndex, newUrl: newMergedUrl, newTitle: newMergedTitle });
+                    } else {
+                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [落单] (主源越界) <-> ${sTitleShort}` });
+                        orphanedEpisodes.push(orphanItem);
+                    }
                 }
             }
 
@@ -2526,7 +2790,15 @@ async function processMergeTask(params) {
             if (mergedCount > 0) {
                 const isAnyCollection = collectionAnimeIds.has(pAnime.animeId) || collectionAnimeIds.has(match.animeId);
                 // ── 覆盖率校验 ────────────────────────────────────────────────
-                if (isMergeRatioValid(mergedCount, filteredPLinksWithIndex.length, filteredMLinksWithIndex.length, currentPrimarySource, secSource, isAnyCollection)) {
+                let isValidMerge = false;
+                if (customRule) {
+                    // 如果是映射表强行指定，跳过基于占比的覆盖率检查，有成功匹配的集数即视为合法
+                    isValidMerge = mergedCount > 0;
+                } else {
+                    isValidMerge = isMergeRatioValid(mergedCount, filteredPLinksWithIndex.length, filteredMLinksWithIndex.length, currentPrimarySource, secSource, isAnyCollection);
+                }
+
+                if (isValidMerge) {
                     // 原子写入：所有 URL/Title 变更一次性提交，保证数据一致性
                     for (const mutation of pendingMutations) {
                         const link  = derivedAnime.links[mutation.linkIndex];
@@ -2563,7 +2835,7 @@ async function processMergeTask(params) {
                         if (isPrimaryCollection && !isSecondaryCollection) {
                             // 主源是合集：在主源索引中找最大落点，记录此季度的结束位置
                             for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
-                                const pIndex = k + offset;
+                                const pIndex = kToPIndexMap.has(k) ? kToPIndexMap.get(k) : (k + offset);
                                 if (matchedPIndices.has(pIndex)) {
                                     const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
                                     if (originalPIndex > maxUsedIndex) maxUsedIndex = originalPIndex;
@@ -2580,7 +2852,7 @@ async function processMergeTask(params) {
                         } else if (!isPrimaryCollection && isSecondaryCollection) {
                             // 副源是合集：在副源索引中找最大落点
                             for (let k = 0; k < filteredMLinksWithIndex.length; k++) {
-                                const pIndex = k + offset;
+                                const pIndex = kToPIndexMap.has(k) ? kToPIndexMap.get(k) : (k + offset);
                                 if (matchedPIndices.has(pIndex)) {
                                     const item = filteredMLinksWithIndex[k];
                                     if (item.originalIndex > maxUsedIndex) maxUsedIndex = item.originalIndex;
@@ -2598,9 +2870,13 @@ async function processMergeTask(params) {
                         }
                     }
 
-                    // 合集副源跳过孤立集补全（避免混入其他季度集数）
-                    if (collectionAnimeIds.has(match.animeId)) {
-                        log("info", `${logPrefix} [智能补全] 跳过: 副源 [${secSource}] 为合集，为避免混入其他季度集数，不执行补全。`);
+                    // 合集副源及跨季度映射跳过孤立集补全（避免混入其他季度集数或无用合集信息）
+                    const pSeasonNum = getSeasonNumber(pAnime.animeTitle, pAnime.typeDescription, pAnime.aliases) || 1;
+                    const sSeasonNum = getSeasonNumber(derivedMatch.animeTitle, derivedMatch.typeDescription, derivedMatch.aliases) || 1;
+                    const isCrossSeasonMapping = customRule && (pSeasonNum !== sSeasonNum);
+
+                    if (collectionAnimeIds.has(match.animeId) || isCrossSeasonMapping) {
+                        log("info", `${logPrefix} [智能补全] 跳过: 副源 [${secSource}] 为合集或触发跨季度映射，为避免混入其他季度集数，不执行补全。`);
                     } else {
                         stitchUnmatchedEpisodes(derivedAnime, orphanedEpisodes, secSource);
                     }
@@ -2684,9 +2960,38 @@ async function processMergeTask(params) {
 export async function applyMergeLogic(curAnimes, detailStore = null) {
     if (!curAnimes || curAnimes.length < 2) return;
 
-    const groups = globals.mergeSourcePairs;
+    // 获取常规配置与映射表配置
+    const baseGroups = globals.mergeSourcePairs || [];
+    const customRules = globals.customMergeRules || [];
+    const dynamicPairsMap = new Map();
+
+    // 扫描映射表，推断隐含的源依赖关系
+    for (const rule of customRules) {
+        if (rule.action === 'block') continue;
+        // 从规则中提取基础源，支持已合并指向解析
+        const pSrc = rule.primary.source.split('&')[0];
+        const sSrc = rule.secondary.source.split('&')[0];
+        if (!dynamicPairsMap.has(pSrc)) dynamicPairsMap.set(pSrc, new Set());
+        dynamicPairsMap.get(pSrc).add(sSrc);
+    }
+
+    // 将映射表规则混入执行组内，提供纯净模式特权运行通道
+    let groups = [...baseGroups];
+    for (const [pSrc, sSrcs] of dynamicPairsMap.entries()) {
+        let existing = groups.find(g => g.primary === pSrc);
+        if (!existing) {
+            existing = { primary: pSrc, secondaries: [] };
+            groups.push(existing);
+        }
+        for (const sSrc of sSrcs) {
+            if (!existing.secondaries.includes(sSrc)) {
+                existing.secondaries.push(sSrc);
+            }
+        }
+    }
+
     if (!groups || groups.length === 0) return;
-    log("info", `[Merge] 启动源合并策略，配置: ${JSON.stringify(groups)}`);
+    log("info", `[Merge] 启动源合并策略，组合计算后的配置: ${JSON.stringify(groups)}`);
 
     // 预处理集数过滤正则
     let epFilter = globals.episodeTitleFilter;
