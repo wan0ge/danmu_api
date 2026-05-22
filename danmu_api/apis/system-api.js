@@ -251,3 +251,51 @@ export function handleReqRecords() {
   return jsonResponse({ records, todayReqNum }, 200);
 }
 
+/**
+ * 处理获取最近 animes 缓存列表的请求
+ * @returns {Response} 包含格式化后番剧及子源集数的 JSON 响应
+ */
+export function handleCacheAnimes() {
+  try {
+    const localAnimes = [...(globals.animes || [])].reverse();
+
+    // 1. 预构建一个全局映射字典，提升查找效率
+    const fullAnimeMap = new Map();
+    localAnimes.forEach(a => {
+      if (a?.source && a?.animeId) {
+        fullAnimeMap.set(`${a.source}_${a.animeId}`, a);
+      }
+    });
+
+    // 2. 视图层数据适配
+    const formattedData = localAnimes
+      .filter(anime => !anime.isHiddenChild)
+      .map(anime => {
+        // 兼容实体类与普通对象
+        const animeJson = typeof anime.toJson === 'function' ? anime.toJson() : { ...anime };
+        const { links = [], mergedChildren = [], ...rest } = animeJson;
+
+        return {
+          ...rest,
+          episodes: rest.episodeCount || rest.episodes || 1,
+          links,
+          mergedChildren: mergedChildren.map(child => {
+            const fullChild = fullAnimeMap.get(`${child.source}_${child.animeId}`);
+            const fullChildJson = typeof fullChild?.toJson === 'function' ? fullChild.toJson() : fullChild;
+            const fullLinks = (fullChildJson?.links?.length > 0) ? fullChildJson.links : (child.links || []);
+
+            return {
+              ...child,
+              episodes: child.episodeCount || child.episodes || 1,
+              links: fullLinks 
+            };
+          })
+        };
+      });
+
+    return jsonResponse({ success: true, data: formattedData }, 200);
+  } catch (error) {
+    log("error", `[server] Fetch cache animes failed: ${error.message}`);
+    return jsonResponse({ success: false, message: `获取缓存失败: ${error.message}` }, 500);
+  }
+}
