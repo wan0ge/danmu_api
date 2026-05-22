@@ -691,6 +691,13 @@ export const componentsCssContent = /* css */ `
 .anime-title {
     margin: 8px 0 5px;
     font-size: 12px;
+    word-break: break-all;         /* 强制打断长连续英文字符串以允许换行 */
+    overflow-wrap: break-word;     /* 确保在单词内部换行，防止长文本撑破容器边界 */
+    display: -webkit-box;          /* 启用 WebKit 特有的弹性伸缩盒模型 */
+    -webkit-line-clamp: 4;         /* 限制文本块最多显示的行数为4行 */
+    -webkit-box-orient: vertical;  /* 设置弹性盒子的子元素垂直排列 */
+    overflow: hidden;              /* 隐藏超出容器设定高度范围的文本内容 */
+    text-overflow: ellipsis;       /* 文本溢出时使用省略号(...)进行截断展示 */
 }
 
 .episode-list-container {
