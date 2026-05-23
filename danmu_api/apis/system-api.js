@@ -3,6 +3,7 @@ import { jsonResponse } from "../utils/http-util.js";
 import { HTML_TEMPLATE } from "../ui/template.js";
 import { formatLogMessage, log } from "../utils/log-util.js";
 import { HandlerFactory } from "../configs/handlers/handler-factory.js";
+import { clearBangumiDataCache, initBangumiData } from "../utils/bangumi-data-util.js";
 
 export function handleUI() {
   return new Response(HTML_TEMPLATE.replace("globals.currentToken", globals.currentToken), {
@@ -171,6 +172,20 @@ export async function handleClearCache() {
     globals.searchCache = new Map();
     globals.commentCache = new Map();
     globals.requestHistory = new Map();
+
+    try {
+      // 清理 Bangumi-Data 内存与磁盘缓存
+      clearBangumiDataCache(true);
+      
+      // 触发异步数据重载
+      if (globals.useBangumiData) {
+        initBangumiData(globals.deployPlatform, false).catch(e => {
+          log("warn", `[server] Bangumi-Data background reload failed: ${e.message}`);
+        });
+      }
+    } catch (e) {
+      log("error", `[server] Failed to clear Bangumi-Data cache: ${e.message}`);
+    }
     
     log("info", `[server] Memory cache cleared successfully`);
     
