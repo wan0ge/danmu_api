@@ -453,7 +453,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
           }
         }
 
-        const MIN_SIMILARITY = 0.2;
+        const MIN_SIMILARITY = 0.4;
         if (!bestMatch || bestScore < MIN_SIMILARITY) {
           log("info", `[TMDB] 最佳匹配相似度过低或未找到匹配 (${bestMatch ? (bestScore * 100).toFixed(2) + '%' : 'N/A'}),跳过`);
           return null;
@@ -512,7 +512,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
   // 增加引用计数
   task.refCount++;
 
-  // 定义退出任务的逻辑
+  // 定义退出任务及释放计数的处理函数
   const leaveTask = () => {
     // 再次获取任务确认其仍存在
     const currentTask = TMDB_PENDING.get(cleanTitle);
@@ -525,21 +525,25 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
     }
   };
 
-  // 处理用户中断监听
+  // 声明局部变量以供全局释放
+  let abortHandler;
+
+  // 处理调用者主动中断的监听
   if (signal) {
     if (signal.aborted) {
         leaveTask();
         log("info", `[TMDB] 搜索已被中断 (Source: ${sourceLabel})`);
         return null;
     }
-    signal.addEventListener('abort', leaveTask, { once: true });
+    signal.addEventListener('abort', leaveTask);
   }
 
   // 使用 Race 机制等待结果或用户中断
   try {
     const userAbortPromise = new Promise((_, reject) => {
         if (signal) {
-            signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+            abortHandler = () => reject(new DOMException('Aborted', 'AbortError'));
+            signal.addEventListener('abort', abortHandler);
         }
     });
 
@@ -552,6 +556,14 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
     }
     log("error", `[TMDB] 搜索异常: ${error.message}`);
     return null;
+  } finally {
+    // 释放并移除终止信号监听器，防止发生内存泄漏
+    if (signal) {
+      signal.removeEventListener('abort', leaveTask);
+      if (abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+    }
   }
 }
 
