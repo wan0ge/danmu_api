@@ -522,6 +522,17 @@ function renderValueInput(item) {
                     }).join('')}
                 </div>
             </div>
+
+            \${currentKey === 'MERGE_SOURCE_PAIRS' ? \`
+            <div style="margin-top: 15px; margin-bottom: 8px;">
+                <button type="button" class="btn btn-primary btn-sm" onclick="fetchAndShowRecentData()">
+                    📊 查看最近数据
+                </button>
+            </div>
+            <div id="recent-data-panel" class="recent-data-panel">
+                <div id="recent-data-list"></div>
+            </div>
+            \` : ''}
         \`;
 
         // 设置拖动事件
