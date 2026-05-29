@@ -409,6 +409,8 @@ async function executeSourceHandlers(resultData, queryTitle, targetAnimesList, r
 
   // 按SOURCE_ORDER顺序合并各源的独立结果到目标容器
   // 先处理的源数据优先保留（animeId去重、detailStore键去重）
+  const existingAnimeIds = new Set(targetAnimesList.map(a => a.animeId));
+
   for (let i = 0; i < sourceTasks.length; i++) {
     if (results[i].status === 'rejected') {
       log("error", `[executeSourceHandlers] 源 ${sourceTasks[i].key} 处理失败: ${results[i].reason}`);
@@ -417,10 +419,11 @@ async function executeSourceHandlers(resultData, queryTitle, targetAnimesList, r
 
     const { animes: isolatedAnimes, detailStore: isolatedDetailStore } = sourceTasks[i];
 
-    // 合并动漫结果列表（animeId去重，先到先得）
+    // 合并动漫结果列表（使用 Set 确保 O(1) 检索，优先源先入为主）
     for (const anime of isolatedAnimes) {
-      if (!targetAnimesList.some(a => a.animeId === anime.animeId)) {
+      if (!existingAnimeIds.has(anime.animeId)) {
         targetAnimesList.push(anime);
+        existingAnimeIds.add(anime.animeId);
       }
     }
 
