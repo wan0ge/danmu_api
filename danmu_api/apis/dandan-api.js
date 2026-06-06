@@ -466,7 +466,17 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
   const cacheKey = querySeason !== null ? `${queryTitle}_S${querySeason}` : queryTitle;
 
   // 检查搜索缓存
-  const cachedResults = getSearchCache(cacheKey, requestAnimeDetailsMap);
+  let cachedResults = getSearchCache(cacheKey, requestAnimeDetailsMap);
+
+  // 如果带季度的特定缓存未命中，尝试获取不带季度的通用搜索缓存
+  if (cachedResults === null && querySeason !== null) {
+    const genericCachedResults = getSearchCache(queryTitle, requestAnimeDetailsMap);
+    if (genericCachedResults !== null) {
+      log("info", `[system] [searchAnime] Cache miss for ${cacheKey}, fallback to generic cache for ${queryTitle}`);
+      cachedResults = genericCachedResults;
+    }
+  }
+
   if (cachedResults !== null) {
     let satisfied = checkEpisodeSatisfied(cachedResults, querySeason, queryEpisode, requestAnimeDetailsMap, targetPlatform);
     if (satisfied) {
@@ -1185,6 +1195,10 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
 
     let matchedEpisode = null;
 
+    // 判定当前循环的 anime 是否为用户手动指定的优选偏好
+    const isPreferredAnime = globals.rememberLastSelect && preferAnimeId != null && 
+        (String(anime.bangumiId) === String(preferAnimeId) || String(anime.animeId) === String(preferAnimeId));
+
     if (season && episode) {
         // 剧集模式逻辑
         const filteredTmpEpisodes = bangumiData.bangumi.episodes.filter(episode => {
@@ -1199,8 +1213,14 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
           targetEpisode = computeTargetEpisode(offsets, season, episode, filteredEpisodes, targetEpisode);
         }
 
-        // 匹配集数 (注意：findEpisodeByNumber 已增强支持模糊平台匹配)
+        // 匹配集数
         matchedEpisode = findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, platform);
+
+        // 如果当前是用户的优选偏好，但由于平台配置限制导致未命中目标平台，则放宽条件无视平台限制提取集数
+        if (!matchedEpisode && isPreferredAnime) {
+            log("info", `[system] [Match] 优选剧集未命中目标平台 ${platform}，放宽条件提取集数`);
+            matchedEpisode = findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, null);
+        }
     } else {
         // 电影模式逻辑
         if (bangumiData.bangumi.episodes.length > 0) {
@@ -1213,6 +1233,9 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
                 
                 if (targetEp) {
                     matchedEpisode = targetEp;
+                } else if (isPreferredAnime) {
+                    log("info", `[system] [Match] 优选电影未命中目标平台 ${platform}，放宽条件提取资源`);
+                    matchedEpisode = bangumiData.bangumi.episodes[0];
                 }
             } else {
                 matchedEpisode = bangumiData.bangumi.episodes[0];
@@ -1234,6 +1257,11 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
             currentScore = 1;
         }
 
+        // 赋予手动指定偏好最高分数权重，确保其在多源匹配中具有绝对优先级
+        if (isPreferredAnime) {
+            currentScore += 9999;
+        }
+
         // 比较并更新最佳结果
         // 逻辑：如果有更好的分数，或者之前没有匹配到任何结果，则更新
         if (currentScore > bestRes.score) {
@@ -1244,9 +1272,8 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
             };
         }
 
-        // 如果没有指定平台偏好 (platform 为空)，则保持原版行为：
-        // 找到第一个符合条件的就立刻返回，不进行后续比较
-        if (!platform) {
+        // 如果没有指定平台偏好 (platform 为空) 或已命中最高优先级的手动优选，立刻跳出查找
+        if (!platform || isPreferredAnime) {
             break; 
         }
         
@@ -2017,7 +2044,7 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
     }
   }
 
-  const [animeId, source, episodeTitle] = findAnimeIdByCommentId(commentId);
+  const [animeId, source, episodeTitle, animeAliases] = findAnimeIdByCommentId(commentId);
   if (animeId && source) {
     let lastTitle = null;
     let lastSeason = null;
@@ -2035,7 +2062,11 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
 
     log("info", `[system] [LogVar-API] animeTitle：${animeTitle}; lastTitle：${lastTitle}; titleMatches：${titleMatches(animeTitle, lastTitle)}`);
 
-    if (titleMatches(animeTitle, lastTitle)) {
+    // 校验番剧标题或别名是否匹配最新搜索/匹配上下文，别名检查用于兼容不同源对同一番剧的标题命名差异
+    const titleOrAliasMatches = titleMatches(animeTitle, lastTitle) ||
+        (Array.isArray(animeAliases) && animeAliases.some(alias => titleMatches(alias, lastTitle)));
+
+    if (titleOrAliasMatches) {
       log("info", `[system] [LogVar-API] excute setPreferByAnimeId`);
       setPreferByAnimeId(animeId, source, lastSeason, offset);
     }
