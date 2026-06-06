@@ -1,5 +1,4 @@
 import { handleRequest } from '../danmu_api/worker.js';
-import { log } from '../danmu_api/danmu_api/utils/log-util.js';
 
 export const onRequest = async (context) => {
   const { request, env } = context;
@@ -8,8 +7,8 @@ export const onRequest = async (context) => {
   const baseUrl = `https://localhost`;
 
   // 调试：打印 headers 和原始 URL
-  log('info', '[node-functions] Request URL:', request.url);
-  log('info', '[node-functions] Request Headers:', request.headers);
+  console.log('Request URL:', request.url);
+  console.log('Request Headers:', request.headers);
 
   // 构造完整的 URL
   let fullUrl;
@@ -22,9 +21,9 @@ export const onRequest = async (context) => {
     }
 
     fullUrl = new URL(targetUrl, baseUrl).toString();
-    log('info', '[node-functions] Request fullUrl:', fullUrl);
+    console.log('Request fullUrl:', fullUrl);
   } catch (error) {
-    log('error', '[node-functions] URL Construction Error:', error);
+    console.error('URL Construction Error:', error);
     return new Response('Invalid URL', { status: 400 });
   }
 
