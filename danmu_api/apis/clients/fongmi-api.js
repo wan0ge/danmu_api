@@ -3,6 +3,7 @@ import { jsonResponse } from "../../utils/http-util.js";
 import { log } from "../../utils/log-util.js";
 import { simplized } from "../../utils/zh-util.js";
 import { convertChineseNumber, extractEpisodeTitle, extractEpisodeNumberFromTitle, normalizeSpaces } from "../../utils/common-util.js";
+import { deduplicateRequest } from "../../utils/request-merge-util.js";
 import { filterSameEpisodeTitle, getBangumiDataForMatch, searchAnime } from "../dandan-api.js";
 
 // =====================
@@ -372,6 +373,11 @@ export async function getFongmiDanmaku(url, req) {
       name = mappedTitle;
     }
   }
+
+  // 请求合并：相同剧名和集数的并发请求共享同一搜索流水线
+  const fongmiDedupKey = `fongmi:${name}:${episode}`;
+  return deduplicateRequest(fongmiDedupKey, async () => {
+
   const searchUrl = new URL(url.toString());
   const detailStore = new Map();
   const keywords = buildFongmiSearchKeywords(name);
@@ -417,4 +423,6 @@ export async function getFongmiDanmaku(url, req) {
 
   log("info", `[system] [Fongmi] name=${name}, episode=${episode}, candidates=${items.length}`);
   return jsonResponse(items, 200);
+
+  });
 }

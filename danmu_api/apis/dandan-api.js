@@ -17,6 +17,7 @@ import {
 } from "../utils/common-util.js";
 import { getTMDBChineseTitle } from "../utils/tmdb-util.js";
 import { applyMergeLogic, mergeDanmakuList, MERGE_DELIMITER, alignSourceTimelines } from "../utils/merge-util.js";
+import { deduplicateRequest } from "../utils/request-merge-util.js";
 import { getHanjutvSourceLabel } from "../utils/hanjutv-util.js";
 import AIClient from '../utils/ai-util.js';
 import Kan360Source from "../sources/kan360.js";
@@ -463,6 +464,10 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
     queryTitle = simplifiedTitle;
   }
 
+  // 请求合并：相同关键字的并发请求共享同一搜索流水线
+  const dedupKey = `search:${queryTitle}:${querySeason ?? '_'}:${queryEpisode ?? '_'}`;
+  return deduplicateRequest(dedupKey, async () => {
+
   const requestAnimeDetailsMap = detailStore instanceof Map ? detailStore : new Map();
   const cacheKey = querySeason !== null ? `${queryTitle}_S${querySeason}` : queryTitle;
 
@@ -799,6 +804,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       animes: responseAnimes,
     });
 
+  });
 }
 
 export function filterSameEpisodeTitle(filteredTmpEpisodes) {
@@ -1510,6 +1516,10 @@ export async function matchAnime(url, req, clientIp) {
     log("info", `[system] [Match] Processing anime match for query: ${fileName}`);
     log("info", `[system] [Match] Parsed cleanFileName: ${cleanFileName}, preferredPlatform: ${preferredPlatform}`);
 
+    // 请求合并：请求体完全一致的并发请求共享同一匹配流水线
+    const matchDedupKey = `match:${JSON.stringify(body)}`;
+    return deduplicateRequest(matchDedupKey, async () => {
+
     let {title, season, episode, year} = await extractTitleSeasonEpisode(cleanFileName);
 
     // 使用剧名映射表转换剧名
@@ -1608,6 +1618,8 @@ export async function matchAnime(url, req, clientIp) {
 
     // 示例返回
     return jsonResponse(resData);
+
+  });
   } catch (error) {
     // 处理 JSON 解析错误或其他异常
     log("error", `[system] [Match] Failed to parse request body: ${error.message}`);
@@ -1639,6 +1651,10 @@ export async function searchEpisodes(url) {
       400
     );
   }
+
+  // 请求合并：相同动漫关键字的并发请求共享同一搜索流水线
+  const episodesDedupKey = `episodes:${anime}:${episode}`;
+  return deduplicateRequest(episodesDedupKey, async () => {
 
   // 先搜索动漫
   let searchUrl = buildSearchAnimeUrl(url, anime);
@@ -1723,11 +1739,18 @@ export async function searchEpisodes(url) {
     errorMessage: "",
     animes: resultAnimes
   });
+
+  });
 }
 
 // Extracted function for GET /api/v2/bangumi/:animeId
 export async function getBangumi(path, detailStore = null, source = null) {
   const idParam = path.split("/").pop();
+
+  // 请求合并：相同番剧ID的并发请求共享同一构建流水线
+  const bangumiDedupKey = `bangumi:${idParam}:${source ?? '_'}`;
+  return deduplicateRequest(bangumiDedupKey, async () => {
+
   const anime =
     resolveAnimeByIdFromDetailStore(idParam, detailStore, source) ||
     resolveAnimeById(idParam);
@@ -1740,6 +1763,8 @@ export async function getBangumi(path, detailStore = null, source = null) {
     );
   }
   return jsonResponse(buildBangumiData(anime, idParam));
+
+  });
 }
 
 function buildBangumiData(anime, idParam = "") {
@@ -1996,6 +2021,11 @@ async function fetchMergedComments(url, animeTitle, commentId) {
 // Extracted function for GET /api/v2/comment/:commentId
 export async function getComment(path, queryFormat, segmentFlag, clientIp, includeDuration = false) {
   const commentId = parseInt(path.split("/").pop());
+
+  // 请求合并：相同弹幕ID和格式的并发请求共享同一获取流水线
+  const commentDedupKey = `comment:${commentId}:${queryFormat ?? '_'}:${segmentFlag}:${includeDuration}`;
+  return deduplicateRequest(commentDedupKey, async () => {
+
   let animeTitle = findAnimeTitleById(commentId);
   let url = findUrlById(commentId);
   let title = findTitleById(commentId);
@@ -2152,6 +2182,8 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
     durationPromise ? await durationPromise : null
   );
   return formatDanmuResponse(responseData, queryFormat);
+
+  });
 }
 
 // Extracted function for GET /api/v2/comment?url=xxx or /api/v2/extcomment?url=xxx
@@ -2176,6 +2208,10 @@ export async function getCommentByUrl(videoUrl, queryFormat, segmentFlag, includ
         400
       );
     }
+
+    // 请求合并：相同URL和格式的并发请求共享同一弹幕获取流水线
+    const commentUrlDedupKey = `commenturl:${videoUrl}:${queryFormat ?? '_'}:${segmentFlag}:${includeDuration}`;
+    return deduplicateRequest(commentUrlDedupKey, async () => {
 
     log("info", `[system] [LogVar-API] Processing comment request for URL: ${videoUrl}`);
 
@@ -2248,6 +2284,8 @@ export async function getCommentByUrl(videoUrl, queryFormat, segmentFlag, includ
       comments: danmus
     }, durationPromise ? await durationPromise : null);
     return formatDanmuResponse(responseData, queryFormat);
+
+  });
   } catch (error) {
     // 处理异常
     log("error", `[system] [LogVar-API] Failed to process comment by URL request: ${error.message}`);
@@ -2274,6 +2312,10 @@ export async function getSegmentComment(segment, queryFormat) {
     }
 
     url = url.trim();
+
+    // 请求合并：相同分段的并发请求共享同一弹幕获取流水线
+    const segmentDedupKey = `segment:${segment.type}:${segment.segment_start}:${segment.segment_end}:${queryFormat ?? '_'}`;
+    return deduplicateRequest(segmentDedupKey, async () => {
 
     log("info", `[system] [SegmentComment] Processing segment comment request for URL: ${url}`);
 
@@ -2347,6 +2389,8 @@ export async function getSegmentComment(segment, queryFormat) {
       comments: danmus
     };
     return formatDanmuResponse(responseData, queryFormat);
+
+  });
   } catch (error) {
     // 处理异常
     log("error", `[system] [SegmentComment] Failed to process segment comment request: ${error.message}`);

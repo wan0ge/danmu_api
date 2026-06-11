@@ -41,6 +41,7 @@ import { convertToAsciiSum } from "./utils/codec-util.js";
 import { handleDanmusLike } from "./utils/danmu-util.js";
 import { Segment, SegmentListResponse } from "./models/dandan-model.js"
 import { initBangumiData, searchBangumiData, clearBangumiDataCache } from "./utils/bangumi-data-util.js";
+import { deduplicateRequest } from "./utils/request-merge-util.js";
 
 // Mock Request class for testing
 class MockRequest {
@@ -1618,6 +1619,59 @@ test('worker.js API endpoints', async (t) => {
   //   } finally {
   //     config.sourceOrderArr = originalSourceOrderArr;
   //   }
+  // });
+
+  // // 测试请求合并去重：相同参数并发请求共享同一工厂函数
+  // await t.test('deduplicateRequest should merge concurrent identical requests and produce independent responses', async () => {
+  //   let factoryCallCount = 0;
+  //
+  //   const factory = async () => {
+  //     factoryCallCount++;
+  //     return new Response(JSON.stringify({ result: 'ok', seq: factoryCallCount }), {
+  //       headers: { 'Content-Type': 'application/json' }
+  //     });
+  //   };
+  //
+  //   // 并发发起两次相同 key 的请求
+  //   const [res1, res2] = await Promise.all([
+  //     deduplicateRequest('test:dedup-key', factory),
+  //     deduplicateRequest('test:dedup-key', factory)
+  //   ]);
+  //
+  //   // 工厂函数应该只被调用一次
+  //   assert.equal(factoryCallCount, 1);
+  //
+  //   // 两个响应都应独立可读
+  //   const body1 = await res1.json();
+  //   const body2 = await res2.json();
+  //
+  //   assert.equal(body1.result, 'ok');
+  //   assert.equal(body2.result, 'ok');
+  //   assert.equal(body1.seq, 1);
+  //   assert.equal(body2.seq, 1);
+  //
+  //   // 验证两个 Response 是独立副本（clone 产出）
+  //   assert.notEqual(res1, res2);
+  // });
+  //
+  // // 测试去重完成后新请求不应命中已清理的 Map
+  // await t.test('deduplicateRequest should not merge sequential requests after completion', async () => {
+  //   let factoryCallCount = 0;
+  //
+  //   const factory = async () => {
+  //     factoryCallCount++;
+  //     return new Response(JSON.stringify({ ok: true }), {
+  //       headers: { 'Content-Type': 'application/json' }
+  //     });
+  //   };
+  //
+  //   // 第一次请求完成后，key 应从 Map 中清理
+  //   await deduplicateRequest('test:seq-key', factory);
+  //   assert.equal(factoryCallCount, 1);
+  //
+  //   // 第二次请求应创建新的工厂，不应合并
+  //   await deduplicateRequest('test:seq-key', factory);
+  //   assert.equal(factoryCallCount, 2);
   // });
 
 });
