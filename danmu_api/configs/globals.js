@@ -152,12 +152,14 @@ export const Globals = {
    */
   /**
    * 获取全局配置对象（单例，可修改）
+   * 使用 Proxy 保持接口兼容性，实例懒初始化后缓存复用避免每次新建
    * @returns {Object} 全局配置对象本身
    */
   getConfig() {
-    // 使用 Proxy 保持接口兼容性
+    if (this._configProxy) return this._configProxy;
+
     const self = this;
-    return new Proxy({}, {
+    this._configProxy = new Proxy({}, {
       get(target, prop) {
         // 优先返回 envs 中的属性（保持原有的平铺效果）
         if (prop in self.envs) {
@@ -186,6 +188,8 @@ export const Globals = {
         return true;
       }
     });
+
+    return this._configProxy;
   },
 };
 
