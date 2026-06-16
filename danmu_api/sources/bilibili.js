@@ -281,7 +281,7 @@ export default class BilibiliSource extends BaseSource {
       localMatches = await searchBangumiData(keyword, [
         'bilibili', 'bilibili_hk_mo_tw', 'bilibili_hk_mo', 'bilibili_tw'
       ]);
-      log("info", `[Bilibili] Bangumi-Data 本地命中 ${localMatches.length} 条数据`);
+      log("info", `[Bilibili] Bangumi-Data 本地命中 ${localMatches.length} 条数据（检索词：${keyword}）`);
     }
 
     // 筛选出港澳台相关的本地匹配项
