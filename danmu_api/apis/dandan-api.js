@@ -2090,8 +2090,11 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
       if (lastSearch && lastSearch.title && lastSearch.season && lastSearch.episode && episodeTitle) {
         lastTitle = lastSearch.title;
         lastSeason = lastSearch.season;
-        offset = `${lastSearch.episode}:${episodeTitle}`;
-        log("info", `[system] [LogVar-API] Calculated episode offset for IP ${clientIp}: Query E${lastSearch.episode}, Selected ${episodeTitle} -> Offset ${offset} (Season ${lastSeason})`);
+        // 从当前观看的剧集标题提取真实集数，避免 lastSearch.episode 因手动选择而过期
+        const currentEpisode = extractEpisodeNumberFromTitle(episodeTitle);
+        const baseEpisode = currentEpisode !== null ? currentEpisode : lastSearch.episode;
+        offset = `${baseEpisode}:${episodeTitle}`;
+        log("info", `[system] [LogVar-API] Calculated episode offset for IP ${clientIp}: Query E${lastSearch.episode}, Current E${baseEpisode}, Selected ${episodeTitle} -> Offset ${offset} (Season ${lastSeason})`);
       }
     }
 
