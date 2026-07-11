@@ -290,6 +290,14 @@ export function titleMatches(title, query, parsedSeason = null) {
     }
   }
 
+  // 查询词含注解标签时，将去标签后的干净查询词加入候选池
+  // 如"百花杀（真彩）"→ 追加"百花杀"，避免"真彩"二字导致包含匹配失败
+  const TAG_RE = /[\(\（\[\【]\s*(?:臻彩|真彩|高清|标清|超清|国配|中配|日配|粤语|原声|台配|无修|未删减|完整版)(?:版)?\s*[\)\）\]\】]/g;
+  const tagStripped = query.replace(TAG_RE, '').trim();
+  if (tagStripped && tagStripped !== query) {
+    qList = [...new Set([...qList, normalizeSpaces(tagStripped).toLowerCase()])];
+  }
+
   // 季度特征校验：先于包含匹配执行，确保错误季度的标题不会因干净查询词误通过
   if (querySeason !== null) {
     const titleSeason = getExplicitSeasonNumber(title);
@@ -307,7 +315,7 @@ export function titleMatches(title, query, parsedSeason = null) {
   if (qList.some(kw => t.includes(kw))) return true;
 
   // 策略3：相似度匹配 (阈值0.8)
-  return qList.some(kw => {
+  const simMatch = qList.some(kw => {
     // 长度差异过大，或纯英文/数字时，禁止使用相似度计算策略
     if (Math.abs(t.length - kw.length) > Math.max(t.length, kw.length) * 0.7 || /^[a-zA-Z0-9]+$/.test(kw)) {
       return false;
@@ -327,6 +335,22 @@ export function titleMatches(title, query, parsedSeason = null) {
 
     return (matchCount / kw.length) > 0.8;
   });
+
+  // 年份噪音兜底：前序策略均未命中时，尝试去年份后再次包含匹配
+  // 如查询词含杂音年份"(2026)"但源标题不含，去年后可正常命中
+  if (!simMatch) {
+    const yearStripped = query.replace(/[\(\（]\s*(?:19|20)\d{2}\s*[\)\）]|\b(?:19|20)\d{2}\b/g, '').trim();
+    if (yearStripped && yearStripped !== query) {
+      // 去年份后可能残留注解标签，继续用同组正则去除
+      const cleanYear = yearStripped.replace(TAG_RE, '').trim();
+      const yearQ = normalizeSpaces(cleanYear).toLowerCase();
+      // 仅当标题不含年份时才接受兜底，保留用户刻意用年份过滤的语义
+      const titleHasYear = /[\(\（]\s*(?:19|20)\d{2}\s*[\)\）]|\b(?:19|20)\d{2}\b/.test(title);
+      if (yearQ && t.includes(yearQ) && !titleHasYear) return true;
+    }
+  }
+
+  return false;
 }
 
 /**
