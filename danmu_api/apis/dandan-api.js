@@ -1536,6 +1536,11 @@ export async function matchAnime(url, req, clientIp) {
       title = simplifiedTitle;
     }
 
+    // 剧名杂音清理：移除画质/配音/版本等杂音词
+    if (globals.titleNoiseFilter) {
+      title = title.replace(globals.titleNoiseFilter, '').trim();
+    }
+
     // 获取 prefer animeId（按 season 维度）
     const [preferAnimeId, preferSource, offsets] = getPreferAnimeId(title, season);
     log("info", `[system] [Match] prefer animeId: ${preferAnimeId} from ${preferSource}`);
