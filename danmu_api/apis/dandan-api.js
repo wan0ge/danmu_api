@@ -546,7 +546,8 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       for (const singleUrl of spaceSeparatedUrls) {
         const { source } = resolveSourceAndRealId(singleUrl);
         if (source === 'animeko') {
-          titles.push(`【animeko】 BGMEp${singleUrl.match(/bgm\.tv\/ep\/(\d+)/)?.[1] || '?'}`);
+          const bgmId = singleUrl.match(/(?:bgm\.tv|bangumi\.tv|bangumi\.lol|chii\.in)\/ep\/(\d+)/);
+          titles.push(`【animeko】 BGMEp${bgmId ? bgmId[1] : '?'}`);
         } else if (source === 'bahamut') {
           titles.push(`【bahamut】 BahaSn${singleUrl.match(/sn=(\d+)/)?.[1] || '?'}`);
         } else {
@@ -628,7 +629,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       platform = "maiduidui";
     } else if (queryTitle.includes('.yfsp.tv')) {
       platform = "aiyifan";
-    } else if (queryTitle.includes('bgm.tv')) {
+    } else if (/(?:bgm|bangumi)\.(?:tv|lol)\/ep\/|chii\.in\/ep\//.test(queryTitle)) {
       platform = "animeko";
     } else if (queryTitle.includes('ani.gamer.com.tw')) {
       platform = "bahamut";
@@ -638,7 +639,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
     let extractedId = queryTitle;
     let pageTitle = queryTitle;
     if (platform === 'animeko') {
-      const m = queryTitle.match(/bgm\.tv\/ep\/(\d+)/);
+      const m = queryTitle.match(/(?:bgm\.tv|bangumi\.tv|bangumi\.lol|chii\.in)\/ep\/(\d+)/);
       extractedId = m ? m[1] : queryTitle;
       pageTitle = `BGMEp${extractedId}`;
     } else if (platform === 'bahamut') {
@@ -1482,8 +1483,8 @@ async function fallbackMatchAniAndEp(searchData, req, season, episode, year, tit
  * @returns {{source: string, realId: string}}
  */
 function resolveSourceAndRealId(url) {
-  // Animeko: bgm.tv/ep/xxx → animeko:xxx(@offset)
-  const bgmMatch = url.match(/bgm\.tv\/ep\/(\d+)/);
+  // Animeko: bgm.tv/bangumi.tv/chii.in/bangumi.lol/ep/xxx → animeko:xxx(@offset)
+  const bgmMatch = url.match(/(?:bgm\.tv|bangumi\.tv|bangumi\.lol|chii\.in)\/ep\/(\d+)/);
   if (bgmMatch) {
     const offsetMatch = url.match(/@(-?\d+(?:\.\d+)?)$/);
     return { source: 'animeko', realId: bgmMatch[1] + (offsetMatch ? offsetMatch[0] : '') };
@@ -2251,8 +2252,8 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
       danmus = await sourceLogContext.run('maiduidui', () => maiduiduiSource.getComments(commentUrl, plat, segmentFlag));
     } else if (url.includes('.yfsp.tv')) {
       danmus = await sourceLogContext.run('aiyifan', () => aiyifanSource.getComments(commentUrl, plat, segmentFlag));
-    } else if (url.includes('bgm.tv/ep/')) {
-      const bgmMatch = commentUrl.match(/bgm\.tv\/ep\/(\d+)/);
+    } else if (/(?:bgm|bangumi)\.(?:tv|lol)\/ep\/|chii\.in\/ep\//.test(url)) {
+      const bgmMatch = commentUrl.match(/(?:bgm\.tv|bangumi\.tv|bangumi\.lol|chii\.in)\/ep\/(\d+)/);
       danmus = await sourceLogContext.run('animeko', () => animekoSource.getComments(bgmMatch ? bgmMatch[1] : commentUrl, plat, segmentFlag));
     } else if (url.includes('ani.gamer.com.tw')) {
       const bahaMatch = commentUrl.match(/sn=(\d+)/);
