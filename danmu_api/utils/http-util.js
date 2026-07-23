@@ -13,6 +13,54 @@ const SOURCE_KEY_TO_LOG_NAME = {
   'imgo': 'mango',
 };
 
+// 每源自适应超时状态：连续超时计数和当前生效超时值
+const sourceTimeoutState = new Map();
+const ADAPTIVE_FAIL_THRESHOLD = 1;
+const ADAPTIVE_DEGRADE_RATIO = 0.5;
+
+/**
+ * 获取某源的当前自适应超时值。连续超时达阈值后降级，成功则恢复。
+ * @param {string} sourceName
+ * @param {number} requestedTimeout 源设定的基础超时值
+ * @returns {number}
+ */
+export function getAdaptiveTimeout(sourceName, requestedTimeout) {
+  if (!sourceName || !requestedTimeout) return requestedTimeout;
+  let state = sourceTimeoutState.get(sourceName);
+  if (!state) {
+    state = { failStreak: 0 };
+    sourceTimeoutState.set(sourceName, state);
+  }
+  if (state.failStreak >= ADAPTIVE_FAIL_THRESHOLD) {
+    return Math.floor(requestedTimeout * ADAPTIVE_DEGRADE_RATIO);
+  }
+  return requestedTimeout;
+}
+
+/**
+ * 报告某源请求超时，累计失败计数用于降级判断
+ * @param {string} sourceName
+ */
+export function reportSourceTimeout(sourceName) {
+  if (!sourceName) return;
+  let state = sourceTimeoutState.get(sourceName);
+  if (!state) {
+    state = { failStreak: 0 };
+    sourceTimeoutState.set(sourceName, state);
+  }
+  state.failStreak++;
+}
+
+/**
+ * 报告某源请求成功，重置失败计数恢复原始超时值
+ * @param {string} sourceName
+ */
+export function reportSourceSuccess(sourceName) {
+  if (!sourceName) return;
+  const state = sourceTimeoutState.get(sourceName);
+  if (state) state.failStreak = 0;
+}
+
 /**
  * 将 sourceOrderArr 中的调度键名转换为日志标签规范名称
  * @param {string} sourceKey - sourceOrderArr 中的键名
@@ -77,8 +125,10 @@ export async function httpGet(url, options = {}) {
       log("info", `[${currentSource}] [请求模拟] HTTP GET: ${url}`);
     }
 
-    // 设置超时时间（默认5秒）
-    const timeout = parseInt(options.timeout || globals.vodRequestTimeout || '5000', 10) || 5000;
+    // 设置超时时间（默认5秒）。若源提供 sourceName，支持连续超时后自适应降级
+    let timeout = parseInt(options.timeout || globals.vodRequestTimeout || '5000', 10) || 5000;
+    const sourceName = options.sourceName;
+    if (sourceName) timeout = getAdaptiveTimeout(sourceName, timeout);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -204,6 +254,7 @@ export async function httpGet(url, options = {}) {
       if (attempt > 0) {
         log("info", `[${currentSource}] [请求模拟] 重试成功`);
       }
+      reportSourceSuccess(sourceName);
 
       // 模拟 iOS 环境：返回 { data: ... } 结构
       return {
@@ -225,6 +276,7 @@ export async function httpGet(url, options = {}) {
       // 检查是否是超时错误
       if (error.name === 'AbortError') {
         log("error", `[${currentSource}] [请求模拟] 请求超时:`, error.message);
+        reportSourceTimeout(sourceName);
         log("error", '详细诊断:');
         log("error", '- URL:', url);
         log("error", '- 超时时间:', `${timeout}ms`);
@@ -282,8 +334,10 @@ export async function httpPost(url, body, options = {}) {
       log("info", `[${currentSource}] [请求模拟] HTTP POST: ${url}`);
     }
 
-    // 设置超时时间（默认5秒）
-    const timeout = parseInt(options.timeout || globals.vodRequestTimeout || '5000', 10) || 5000;
+    // 设置超时时间（默认5秒）。若源提供 sourceName，支持连续超时后自适应降级
+    let timeout = parseInt(options.timeout || globals.vodRequestTimeout || '5000', 10) || 5000;
+    const sourceName = options.sourceName;
+    if (sourceName) timeout = getAdaptiveTimeout(sourceName, timeout);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -337,6 +391,7 @@ export async function httpPost(url, body, options = {}) {
       if (attempt > 0) {
         log("info", `[${currentSource}] [请求模拟] 重试成功`);
       }
+      reportSourceSuccess(sourceName);
 
       // 模拟 iOS 环境：返回 { data: ... } 结构
       return {
@@ -358,6 +413,7 @@ export async function httpPost(url, body, options = {}) {
       // 检查是否是超时错误
       if (error.name === 'AbortError') {
         log("error", `[${currentSource}] [请求模拟] 请求超时:`, error.message);
+        reportSourceTimeout(sourceName);
         log("error", '详细诊断:');
         log("error", '- URL:', url);
         log("error", '- 超时时间:', `${timeout}ms`);
