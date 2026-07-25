@@ -162,6 +162,7 @@ const RegexStore = {
         NON_ALPHANUM_CN:     /[^\u4e00-\u9fa5a-zA-Z0-9]/g,
         META_SUFFIX:         /(\(|（|\[)(续篇|TV版|无修|未删减|完整版)(\)|）|\])/gi,
         YEAR_TAG:            /(\(|（|\[)\d{4}(\)|）|\]).*$/i,
+        YEAR_DIGITS:         /[\(（](\d{4})[\)）]/,
         SUBTITLE_SEPARATOR:  /^[\s:：\-–—(（\[【]/,
         SPACE_STRUCTURE:     /.+[\s\u00A0\u3000].+/,
         SPLIT_SPACES:        /[\s\u00A0\u3000]+/,
@@ -831,6 +832,32 @@ function checkTheatricalExemption(titleA, titleB, typeDescA, typeDescB) {
 }
 
 /**
+ * 检查标题与年份一致性以豁免类型标签差异
+ * 例如同一部剧在不同源被标注为"电视剧"与"动漫"，但年份括号内数字一致时可合并。
+ * 年份不同、N/A 或无年份不触发豁免。
+ * @param {string} titleA
+ * @param {string} titleB
+ * @returns {boolean}
+ */
+function isExactTitleYearMatch(titleA, titleB) {
+    const mA = titleA.match(RegexStore.Clean.YEAR_DIGITS);
+    const mB = titleB.match(RegexStore.Clean.YEAR_DIGITS);
+    if (!mA || !mB) return false;          // 至少一方无有效四位数年份
+    if (mA[1] !== mB[1]) return false;     // 年份不同
+
+    const strip = (t) => t
+        .replace(RegexStore.Clean.YEAR_DIGITS, '')          // 去掉年份
+        .replace(RegexStore.Clean.SOURCE_TAG, '')           // 去掉【电视剧】【动漫】等类型标签
+        .replace(RegexStore.Clean.FROM_SUFFIX, '')          // 去掉 from xxx
+        .replace(RegexStore.Clean.PARENTHESES_CONTENT, '')  // 去掉其余括号内容
+        .replace(RegexStore.Clean.NON_ALPHANUM_CN, '')      // 去掉剩余非字母数字汉字符
+        .trim()
+        .toLowerCase();
+
+    return strip(titleA) === strip(titleB);
+}
+
+/**
  * 校验媒体类型是否冲突 (真人 vs 动漫, TV vs Movie, 3D vs 2D)
  * 包含维数通配符逻辑：无明确 3D/2D 标识的条目视为通配符，允许进行任何关联
  * @param {string}  titleA
@@ -844,6 +871,9 @@ function checkTheatricalExemption(titleA, titleB, typeDescA, typeDescB) {
  * @returns {boolean} true = 类型冲突，false = 兼容
  */
 function checkMediaTypeMismatch(titleA, titleB, typeDescA, typeDescB, countA, countB, sourceA = '', sourceB = '') {
+    // 标题与年份完全相同时豁免类型标签（如电视剧 vs 动漫）
+    if (isExactTitleYearMatch(titleA, titleB)) return false;
+
     const catA = getContentCategory(titleA, typeDescA, sourceA);
     const catB = getContentCategory(titleB, typeDescB, sourceB);
     // 动漫与真人剧绝对不兼容
