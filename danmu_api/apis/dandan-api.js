@@ -239,6 +239,7 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
   }
 
   let allSatisfied = true;
+  let anyPlatformHadData = false;
 
   for (const tPlat of targetPlatforms) {
     let isEpisodeSatisfied = false;
@@ -283,8 +284,9 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
     }
 
     if (!platformHasData) {
-      continue; 
+      continue;
     }
+    anyPlatformHadData = true;
 
     if (!isEpisodeSatisfied) {
       let totalValidEpisodes = 0;
@@ -296,6 +298,11 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
         break;
       }
     }
+  }
+
+  // 指定平台均无匹配数据时判定为不满足，不阻塞跨季扩展
+  if (!anyPlatformHadData && targetPlatform) {
+    return false;
   }
 
   return allSatisfied;
@@ -1723,6 +1730,9 @@ export async function matchAnime(url, req, clientIp) {
         resAnime = __ret.resAnime;
         // 跨季集数顺延映射的结果不更新 lastSearch，防止无关番剧污染 lastSelectMap 偏好记录
         spilloverMatched = __ret.isSpillover;
+        if (resAnime) {
+          resData["isMatched"] = true;
+        }
       }
     }
 
