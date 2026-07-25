@@ -2304,10 +2304,8 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
 
     if (clientIp) {
       const lastSearch = getLastSearch(clientIp);
-      // lastSearch 仅在 Match/Search 时更新，顺播下一集时不刷新。
-      // 加 3 分钟 TTL 防止过期 episode 值导致错误偏移（如 E21 时搜的，
-      // 20 分钟后顺播到 E24 时仍以 E21 为基准记录）。
-      // 3 分钟与默认搜索结果缓存时间一致，给用户留出手动纠正的窗口。
+      // lastSearch 仅在 Match/Search 时更新，小幻顺播下一集时不刷新。
+      // 加 3 分钟 TTL 防止过期 episode 值导致错误偏移（如 E21 时搜的，20 分钟后顺播到 E24 时仍以 E21 为基准记录）。
       if (lastSearch && lastSearch.title && lastSearch.season && lastSearch.episode && episodeTitle) {
         if (Date.now() - lastSearch.timestamp < 180000) {
           lastTitle = lastSearch.title;
