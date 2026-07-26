@@ -446,8 +446,8 @@ export function extractSeasonNumberFromAnimeTitle(animeTitle) {
 export function extractEpisodeNumberFromTitle(episodeTitle) {
   if (!episodeTitle) return null;
 
-  // 匹配格式：第1集、第01集、第10集等
-  const chineseMatch = episodeTitle.match(/第(\d+)集/);
+  // 匹配格式：第1集、第01集、第1话、第1回等
+  const chineseMatch = episodeTitle.match(/第(\d+)[集话回]/);
   if (chineseMatch) {
     return parseInt(chineseMatch[1], 10);
   }
