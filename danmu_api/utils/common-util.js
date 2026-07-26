@@ -314,8 +314,9 @@ export function titleMatches(title, query, parsedSeason = null) {
     const titleSeason = getExplicitSeasonNumber(titleText);
 
     if (querySeason > 1) {
-      // 搜索指定续作(>1)时，标题必须明确包含该季度标识
-      if ((titleSeason || 1) !== querySeason) return false;
+      // 搜索指定续作(>1)时，仅当源标题明确包含季号时才校验季号一致性
+      // 源标题无季号的不分季长剧不应被此规则拦截，交由上游源处理器决定
+      if (titleSeason !== null && titleSeason !== querySeason) return false;
     } else if (querySeason === 1) {
       // 搜索第1季时，拦截明确标明为其他季度(如第2季、第3季)的结果
       if (titleSeason !== null && titleSeason !== 1) return false;
