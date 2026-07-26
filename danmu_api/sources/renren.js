@@ -137,11 +137,11 @@ export default class RenrenSource extends BaseSource {
     ROTATION_THRESHOLD = Math.floor(Math.random() * (60 - 30 + 1)) + 30;
     
     if (oldId) {
-        log("info", `[Renren] AliID 轮换完成: ${oldId} -> ${CACHED_ALI_ID}`);
+        log("info", `[renren] AliID 轮换完成: ${oldId} -> ${CACHED_ALI_ID}`);
     } else {
-        log("info", `[Renren] AliID 初始化完成: ${CACHED_ALI_ID}`);
+        log("info", `[renren] AliID 初始化完成: ${CACHED_ALI_ID}`);
     }
-    log("info", `[Renren] AliID 下次轮换将在 ${ROTATION_THRESHOLD} 次操作后触发`);
+    log("info", `[renren] AliID 下次轮换将在 ${ROTATION_THRESHOLD} 次操作后触发`);
   }
 
   /**
@@ -157,14 +157,14 @@ export default class RenrenSource extends BaseSource {
 
     // 2. 检查阈值，决定是否轮换
     if (REQUEST_COUNT >= ROTATION_THRESHOLD) {
-      log("info", `[Renren] AliID 触发阈值 (${REQUEST_COUNT}/${ROTATION_THRESHOLD})，正在轮换 ID...`);
+      log("info", `[renren] AliID 触发阈值 (${REQUEST_COUNT}/${ROTATION_THRESHOLD})，正在轮换 ID...`);
       this.rotateAliId();
     }
 
     // 3. 增加计数
     REQUEST_COUNT++;
     // 输出明确的计数日志，方便排查
-    log("info", `[Renren] AliID 计数增加: ${REQUEST_COUNT}/${ROTATION_THRESHOLD} (当前ID: ...${CACHED_ALI_ID.slice(-6)})`);
+    log("info", `[renren] AliID 计数增加: ${REQUEST_COUNT}/${ROTATION_THRESHOLD} (当前ID: ...${CACHED_ALI_ID.slice(-6)})`);
   }
 
   /**
@@ -321,7 +321,7 @@ export default class RenrenSource extends BaseSource {
           if (resp.data && resp.data.error === "Document not found") {
               return []; 
           }
-          log("info", `[Renren] ${tierName} 弹幕接口返回未知 404 响应，疑似接口失效`);
+          log("info", `[renren] ${tierName} 弹幕接口返回未知 404 响应，疑似接口失效`);
           return null; 
       }
 
@@ -333,7 +333,7 @@ export default class RenrenSource extends BaseSource {
 
       return [];
     } catch (error) {
-       log("info", `[Renren] ${tierName} 端弹幕拉取异常: ${error.message}`);
+       log("info", `[renren] ${tierName} 端弹幕拉取异常: ${error.message}`);
        return null;
     }
   }
@@ -393,7 +393,7 @@ export default class RenrenSource extends BaseSource {
       const resp = await httpGet(url, { headers, timeout: 3000, signal });
 
       if (!resp.data || resp.data.code !== "0000") {
-        log("info", `[Renren] TV搜索接口异常: code=${resp?.data?.code}, msg=${resp?.data?.msg}`);
+        log("info", `[renren] TV搜索接口异常: code=${resp?.data?.code}, msg=${resp?.data?.msg}`);
         return null;
       }
 
@@ -426,7 +426,7 @@ export default class RenrenSource extends BaseSource {
         };
       });
     } catch (error) {
-      log("info", "[Renren] searchAppContent error:", error.message);
+      log("info", "[renren] searchAppContent error:", error.message);
       return null;
     }
   }
@@ -445,7 +445,7 @@ export default class RenrenSource extends BaseSource {
 
       const resp = await httpGet(url, { headers, timeout: 3000, signal });
       if (!resp.data || resp.data.code !== "0000") {
-        log("info", `[Renren] Mac端搜索接口异常: code=${resp?.data?.code}`);
+        log("info", `[renren] Mac端搜索接口异常: code=${resp?.data?.code}`);
         return null;
       }
 
@@ -478,7 +478,7 @@ export default class RenrenSource extends BaseSource {
         };
       });
     } catch (error) {
-       log("info", "[Renren] performMacSearch error:", error.message);
+       log("info", "[renren] performMacSearch error:", error.message);
        return null;
     }
   }
@@ -496,7 +496,7 @@ export default class RenrenSource extends BaseSource {
 
       const resp = await httpGet(`${url}?${queryString}`, { headers, timeout: 3000, signal });
       if (!resp.data || resp.data.code !== "0000") {
-        log("info", `[Renren] Win端搜索接口异常: code=${resp?.data?.code}`);
+        log("info", `[renren] Win端搜索接口异常: code=${resp?.data?.code}`);
         return null;
       }
 
@@ -549,7 +549,7 @@ export default class RenrenSource extends BaseSource {
 
       return results;
     } catch (error) {
-       log("info", "[Renren] performWinSearch error:", error.message);
+       log("info", "[renren] performWinSearch error:", error.message);
        return null;
     }
   }
@@ -583,7 +583,7 @@ export default class RenrenSource extends BaseSource {
       if (lockRef) lockRef.value = false;
 
       if (!resp.data) {
-        log("info", "[Renren] 网页版搜索无响应数据");
+        log("info", "[renren] 网页版搜索无响应数据");
         return null;
       }
 
@@ -617,14 +617,14 @@ export default class RenrenSource extends BaseSource {
         };
       });
     } catch (error) {
-      log("info", "[Renren] performNetworkSearch error:", error.message);
+      log("info", "[renren] performNetworkSearch error:", error.message);
       return null;
     }
   }
 
   async search(keyword) {
     this._searchConnectivity = null; // 每次搜索重置连通性信息
-    log("info", `[Renren] 开始搜索: ${keyword}`);
+    log("info", `[renren] 开始搜索: ${keyword}`);
     const isCloud = globals.deployPlatform && globals.deployPlatform !== 'node';
 
     if (isCloud) {
@@ -714,7 +714,7 @@ export default class RenrenSource extends BaseSource {
     // 智能路由检测与降级回路
     for (let i = currentTierIndex; i < tiers.length; i++) {
         const tier = tiers[i];
-        log("info", `[Renren] 尝试使用 ${tier} 端接口搜索`);
+        log("info", `[renren] 尝试使用 ${tier} 端接口搜索`);
 
         try {
             let tierResults = null;
@@ -741,22 +741,22 @@ export default class RenrenSource extends BaseSource {
 
                 // 记录当前健康的接口层级
                 if (API_HEALTH.search !== tier) {
-                    log("info", `[Renren] 搜索域接口健康状态更新: ${API_HEALTH.search} -> ${tier}`);
+                    log("info", `[renren] 搜索域接口健康状态更新: ${API_HEALTH.search} -> ${tier}`);
                     API_HEALTH.search = tier;
                 }
 
                 break;
             } else {
-                log("info", `[Renren] ${tier} 端搜索接口异常或请求失败，触发降级`);
+                log("info", `[renren] ${tier} 端搜索接口异常或请求失败，触发降级`);
             }
         } catch (e) {
-            log("info", `[Renren] ${tier} 端搜索异常，触发降级: ${e.message}`);
+            log("info", `[renren] ${tier} 端搜索异常，触发降级: ${e.message}`);
         }
     }
 
     // 所有降级接口全部“异常报错”时，重置健康状态
     if (!hasValidResponse) {
-        log("info", `[Renren] 搜索域所有降级接口均异常失败，重置健康状态至 WIN 端`);
+        log("info", `[renren] 搜索域所有降级接口均异常失败，重置健康状态至 WIN 端`);
         API_HEALTH.search = 'WIN';
     }
 
@@ -800,7 +800,7 @@ export default class RenrenSource extends BaseSource {
 
       // 1. 基础网络或数据校验
       if (!resp || !resp.data) {
-        log("info", `[Renren] TV详情接口网络无响应或数据为空: ID=${dramaId}`);
+        log("info", `[renren] TV详情接口网络无响应或数据为空: ID=${dramaId}`);
         return null;
       }
 
@@ -809,31 +809,31 @@ export default class RenrenSource extends BaseSource {
 
       // 2. 检测特定维护信息 "该剧暂不可播"
       if (msg.includes("该剧暂不可播")) {
-          log("info", `[Renren] TV接口提示'该剧暂不可播' (ID=${dramaId})，视为维护中，触发降级`);
+          log("info", `[renren] TV接口提示'该剧暂不可播' (ID=${dramaId})，视为维护中，触发降级`);
           return null; 
       }
 
       // 3. 检测错误码
       if (resData.code !== "0000") {
-        log("info", `[Renren] TV详情接口返回错误码: ${resData.code}, msg=${msg} (ID=${dramaId})`);
+        log("info", `[renren] TV详情接口返回错误码: ${resData.code}, msg=${msg} (ID=${dramaId})`);
         return null;
       }
 
       // 4. 检测分集数据完整性，过滤“即将开播”
       if (!resData.data || !resData.data.episodeList || resData.data.episodeList.length === 0) {
         if (resData.data?.dramaInfo?.playStatus?.includes("即将开播")) {
-            log("info", `[Renren] TV详情接口提示'即将开播' (ID=${dramaId})，视为空结果`);
+            log("info", `[renren] TV详情接口提示'即将开播' (ID=${dramaId})，视为空结果`);
             if (!resData.data.episodeList) resData.data.episodeList = [];
             return resData.data; 
         }
-        log("info", `[Renren] TV详情接口返回数据缺失分集列表 (ID=${dramaId})，尝试降级`);
+        log("info", `[renren] TV详情接口返回数据缺失分集列表 (ID=${dramaId})，尝试降级`);
         return null; 
       }
 
-      log("info", `[Renren] TV端详情获取与分集解析成功: ID=${dramaId}, 包含集数=${resData.data.episodeList.length}`);
+      log("info", `[renren] TV端详情获取与分集解析成功: ID=${dramaId}, 包含集数=${resData.data.episodeList.length}`);
       return resData.data;
     } catch (error) {
-      log("info", "[Renren] getAppDramaDetail error:", error.message);
+      log("info", "[renren] getAppDramaDetail error:", error.message);
       return null;
     }
   }
@@ -876,7 +876,7 @@ export default class RenrenSource extends BaseSource {
 
       // 1. 基础网络或数据校验
       if (!resp || !resp.data) {
-        log("info", `[Renren] 详情接口网络无响应或数据为空 (${targetHost}): ID=${dramaId}`);
+        log("info", `[renren] 详情接口网络无响应或数据为空 (${targetHost}): ID=${dramaId}`);
         return null;
       }
 
@@ -885,31 +885,31 @@ export default class RenrenSource extends BaseSource {
 
       // 2. 检测特定维护信息 "该剧暂不可播"
       if (msg.includes("该剧暂不可播")) {
-          log("info", `[Renren] 接口提示'该剧暂不可播' (${targetHost}) (ID=${dramaId})，视为维护中，触发降级`);
+          log("info", `[renren] 接口提示'该剧暂不可播' (${targetHost}) (ID=${dramaId})，视为维护中，触发降级`);
           return null;
       }
 
       // 3. 检测错误码
       if (resData.code !== "0000") {
-        log("info", `[Renren] 详情接口返回错误码: ${resData.code}, msg=${msg} (${targetHost}) (ID=${dramaId})`);
+        log("info", `[renren] 详情接口返回错误码: ${resData.code}, msg=${msg} (${targetHost}) (ID=${dramaId})`);
         return null;
       }
 
       // 4. 检测分集数据完整性，过滤“即将开播”
       if (!resData.data || !resData.data.episodeList || resData.data.episodeList.length === 0) {
         if (resData.data?.dramaInfo?.playStatus?.includes("即将开播")) {
-            log("info", `[Renren] 详情接口提示'即将开播' (${targetHost}) (ID=${dramaId})，视为空结果`);
+            log("info", `[renren] 详情接口提示'即将开播' (${targetHost}) (ID=${dramaId})，视为空结果`);
             if (!resData.data.episodeList) resData.data.episodeList = [];
             return resData.data;
         }
-        log("info", `[Renren] 详情接口返回数据缺失分集列表 (${targetHost}) (ID=${dramaId})，尝试降级`);
+        log("info", `[renren] 详情接口返回数据缺失分集列表 (${targetHost}) (ID=${dramaId})，尝试降级`);
         return null;
       }
 
-      log("info", `[Renren] 跨协议详情获取与分集解析成功 (${targetHost}): ID=${dramaId}, 包含集数=${resData.data.episodeList.length}`);
+      log("info", `[renren] 跨协议详情获取与分集解析成功 (${targetHost}): ID=${dramaId}, 包含集数=${resData.data.episodeList.length}`);
       return resData.data;
     } catch (error) {
-      log("info", `[Renren] getGatewayDramaDetail error (${targetHost}):`, error.message);
+      log("info", `[renren] getGatewayDramaDetail error (${targetHost}):`, error.message);
       return null;
     }
   }
@@ -927,12 +927,12 @@ export default class RenrenSource extends BaseSource {
 
       const decoded = autoDecode(resp.data);
       if (decoded && decoded.data && decoded.data.episodeList && decoded.data.episodeList.length > 0) {
-         log("info", `[Renren] 网页版详情获取与分集解析成功: ID=${dramaId}, 包含集数=${decoded.data.episodeList.length}`);
+         log("info", `[renren] 网页版详情获取与分集解析成功: ID=${dramaId}, 包含集数=${decoded.data.episodeList.length}`);
          return decoded.data;
       }
       return null;
     } catch (e) {
-      log("info", `[Renren] 网页版详情请求失败: ${e.message}`);
+      log("info", `[renren] 网页版详情请求失败: ${e.message}`);
       return null;
     }
   }
@@ -1032,7 +1032,7 @@ export default class RenrenSource extends BaseSource {
     // 智能路由检测与降级回路
     for (let i = currentTierIndex; i < tiers.length; i++) {
         const tier = tiers[i];
-        log("info", `[Renren] 尝试使用 ${tier} 端接口获取详情分集 (ID=${id})`);
+        log("info", `[renren] 尝试使用 ${tier} 端接口获取详情分集 (ID=${id})`);
 
         try {
             if (tier === 'TV') {
@@ -1048,20 +1048,20 @@ export default class RenrenSource extends BaseSource {
             if (detail) {
                 // 记录当前健康的接口层级
                 if (API_HEALTH.detail !== tier) {
-                    log("info", `[Renren] 详情域接口健康状态更新: ${API_HEALTH.detail} -> ${tier}`);
+                    log("info", `[renren] 详情域接口健康状态更新: ${API_HEALTH.detail} -> ${tier}`);
                     API_HEALTH.detail = tier;
                 }
                 return detail;
             } else {
-                log("info", `[Renren] ${tier} 详情接口失败或无数据，触发降级`);
+                log("info", `[renren] ${tier} 详情接口失败或无数据，触发降级`);
             }
         } catch (e) {
-            log("info", `[Renren] ${tier} 详情接口异常，触发降级: ${e.message}`);
+            log("info", `[renren] ${tier} 详情接口异常，触发降级: ${e.message}`);
         }
     }
 
     // 所有端点轮换完毕仍未获取到数据，重置健康状态
-    log("info", `[Renren] 详情域所有降级接口均失败，重置健康状态至 WEB 端`);
+    log("info", `[renren] 详情域所有降级接口均失败，重置健康状态至 WEB 端`);
     API_HEALTH.detail = 'WEB';
     return null;
   }
@@ -1070,12 +1070,12 @@ export default class RenrenSource extends BaseSource {
     const detail = await this.getDetail(id);
 
     if (!detail) {
-      log("info", `[Renren] 获取分集失败: 详情对象为空 ID=${id}`);
+      log("info", `[renren] 获取分集失败: 详情对象为空 ID=${id}`);
       return [];
     }
 
     if (!detail.episodeList || !Array.isArray(detail.episodeList)) {
-       log("info", `[Renren] 获取分集失败: episodeList 字段缺失或非数组 ID=${id}`);
+       log("info", `[renren] 获取分集失败: episodeList 字段缺失或非数组 ID=${id}`);
        return [];
     }
 
@@ -1151,7 +1151,7 @@ export default class RenrenSource extends BaseSource {
     const tmpAnimes = [];
 
     if (!sourceAnimes || !Array.isArray(sourceAnimes)) {
-      log("info", "[Renren] sourceAnimes is not a valid array");
+      log("info", "[renren] sourceAnimes is not a valid array");
       return [];
     }
 
@@ -1177,14 +1177,14 @@ export default class RenrenSource extends BaseSource {
       // 如果已命中目标，减少详情请求量
       if (seasonFiltered.length > 0) {
         filteredAnimes = seasonFiltered;
-        log("info", `[Renren] 结果已命中目标季(第${resolvedQuerySeason}季)，跳过非目标季相关请求`);
+        log("info", `[renren] 结果已命中目标季(第${resolvedQuerySeason}季)，跳过非目标季相关请求`);
       }
     }
 
     // 打印过滤合并后的结果日志
     const tierNameMap = { 'TV': 'TV', 'MAC': 'Mac', 'WIN': 'Win', 'WEB': '网页' };
     const currentTierName = tierNameMap[API_HEALTH.search] || '未知';
-    log("info", `[Renren] ${currentTierName}端搜索提取结果数量: ${sourceAnimes.length} 有效结果数量：${filteredAnimes.length}`);
+    log("info", `[renren] ${currentTierName}端搜索提取结果数量: ${sourceAnimes.length} 有效结果数量：${filteredAnimes.length}`);
 
     // [标记开始] 进入批量处理模式
     // 注意：此处不再输出冗余日志，也不扣费。开启静默模式。
@@ -1239,7 +1239,7 @@ export default class RenrenSource extends BaseSource {
               }
             }
           } catch (error) {
-            log("info", `[Renren] Error processing anime: ${error.message}`);
+            log("info", `[renren] Error processing anime: ${error.message}`);
           }
         })
       );
@@ -1294,7 +1294,7 @@ export default class RenrenSource extends BaseSource {
           if (resp.data && resp.data.error === "Document not found") {
               return []; 
           }
-          log("info", `[Renren] TV 弹幕接口返回未知 404 响应，疑似接口失效`);
+          log("info", `[renren] TV 弹幕接口返回未知 404 响应，疑似接口失效`);
           return null; 
       }
 
@@ -1308,7 +1308,7 @@ export default class RenrenSource extends BaseSource {
 
       return [];
     } catch (error) {
-      log("info", "[Renren] getAppDanmu error:", error.message);
+      log("info", "[renren] getAppDanmu error:", error.message);
       return null;
     }
   }
@@ -1365,7 +1365,7 @@ export default class RenrenSource extends BaseSource {
           if (fallbackResp.data && fallbackResp.data.error === "Document not found") {
               return []; 
           }
-          log("info", `[Renren] WEB 弹幕接口返回未知 404 响应，疑似接口失效`);
+          log("info", `[renren] WEB 弹幕接口返回未知 404 响应，疑似接口失效`);
           return null; 
       }
 
@@ -1378,7 +1378,7 @@ export default class RenrenSource extends BaseSource {
 
       return list;
     } catch (e) {
-      log("info", `[Renren] 网页版弹幕降级失败: ${e.message}`);
+      log("info", `[renren] 网页版弹幕降级失败: ${e.message}`);
       return null;
     }
   }
@@ -1407,7 +1407,7 @@ export default class RenrenSource extends BaseSource {
     // 智能路由检测与降级回路
     for (let i = currentTierIndex; i < tiers.length; i++) {
         const tier = tiers[i];
-        log("info", `[Renren] 尝试使用 ${tier} 端接口获取弹幕`);
+        log("info", `[renren] 尝试使用 ${tier} 端接口获取弹幕`);
 
         try {
             if (tier === 'TV') {
@@ -1424,14 +1424,14 @@ export default class RenrenSource extends BaseSource {
             if (danmuList !== null && Array.isArray(danmuList)) {
                 // 记录当前健康的接口层级
                 if (API_HEALTH.danmu !== tier) {
-                    log("info", `[Renren] 弹幕域接口健康状态更新: ${API_HEALTH.danmu} -> ${tier}`);
+                    log("info", `[renren] 弹幕域接口健康状态更新: ${API_HEALTH.danmu} -> ${tier}`);
                     API_HEALTH.danmu = tier;
                 }
 
                 if (danmuList.length > 0) {
-                    log("info", `[Renren] 成功获取 ${danmuList.length} 条弹幕 (${tier}端)`);
+                    log("info", `[renren] 成功获取 ${danmuList.length} 条弹幕 (${tier}端)`);
                 } else {
-                    log("info", `[Renren] 该剧集暂无弹幕 (${tier}端)`);
+                    log("info", `[renren] 该剧集暂无弹幕 (${tier}端)`);
                 }
 
                 // 将时长与ID附带在返回的数组对象上供格式化时使用
@@ -1439,15 +1439,15 @@ export default class RenrenSource extends BaseSource {
                 danmuList.episodeId = id;
                 return danmuList;
             } else {
-                log("info", `[Renren] ${tier} 弹幕接口失败，触发降级`);
+                log("info", `[renren] ${tier} 弹幕接口失败，触发降级`);
             }
         } catch (e) {
-            log("info", `[Renren] ${tier} 弹幕接口异常，触发降级: ${e.message}`);
+            log("info", `[renren] ${tier} 弹幕接口异常，触发降级: ${e.message}`);
         }
     }
 
     // 所有端点轮换完毕仍未获取到数据，重置健康状态
-    log("info", `[Renren] 弹幕域所有降级接口均失败，重置健康状态至 TV 端`);
+    log("info", `[renren] 弹幕域所有降级接口均失败，重置健康状态至 TV 端`);
     API_HEALTH.danmu = 'TV';
     
     const emptyDanmuList = [];
@@ -1541,7 +1541,7 @@ export default class RenrenSource extends BaseSource {
       return null;
     }).filter(Boolean);
     if (adDurationMs > 0) {
-        log("info", `[Renren] 识别到前置广告(${adDurationMs}ms)，已自动偏移时间轴。成功转换 ${formattedList.length} 条，剔除无效弹幕 ${droppedCount} 条 (ID=${episodeId})`);
+        log("info", `[renren] 识别到前置广告(${adDurationMs}ms)，已自动偏移时间轴。成功转换 ${formattedList.length} 条，剔除无效弹幕 ${droppedCount} 条 (ID=${episodeId})`);
     }
     return formattedList;
   }

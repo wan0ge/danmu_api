@@ -17,11 +17,11 @@ export function printFirst200Chars(data) {
   } else if (typeof data === 'object') {
     dataToPrint = JSON.stringify(data);  // 如果是对象，转为字符串
   } else {
-    log("error", "[Utils] [Common] Unsupported data type");
+    log("error", "[system] [common] Unsupported data type");
     return;
   }
 
-  log("info", "[Utils] [Common]", dataToPrint.slice(0, 200));  // 打印前200个字符
+  log("info", "[system] [common]", dataToPrint.slice(0, 200));  // 打印前200个字符
 }
 
 // 正则表达式：提取episode标题中的内容
@@ -172,7 +172,7 @@ export function createDynamicPlatformOrder(preferredPlatform) {
 
   // 验证平台是否有效
   if (!globals.allowedPlatforms.includes(preferredPlatform)) {
-    log("warn", `[Utils] [Common] Invalid platform: ${preferredPlatform}, using default order`);
+    log("warn", `[system] [common] Invalid platform: ${preferredPlatform}, using default order`);
     return [...globals.platformOrderArr];
   }
 
@@ -223,16 +223,22 @@ export function normalizeSpaces(str) {
 export function strictTitleMatch(title, query) {
   if (!title || !query) return false;
 
-  const t = normalizeSpaces(title);
-  const q = normalizeSpaces(query);
+  // 剧名杂音清理：移除画质/配音/版本等杂音词，避免阻塞匹配
+  const tagFilter = globals.titleNoiseFilter || null;
+  const cleanTitle = tagFilter ? title.replace(tagFilter, '').trim() : title;
+  const cleanQuery = tagFilter ? query.replace(tagFilter, '').trim() : query;
+
+  const t = normalizeSpaces(cleanTitle);
+  const q = normalizeSpaces(cleanQuery);
 
   // 完全匹配
   if (t === q) return true;
 
-  // 标题以搜索词开头，且后面跟着空格、括号等分隔符
-  const separators = [' ', '(', '（', ':', '：', '-', '—', '·', '第', 'S', 's', '年番', '合集'];
-  for (const sep of separators) {
-    if (t.startsWith(q + sep)) return true;
+  // 标题以搜索词开头，且后面为季号或有效关键词时，允许严格匹配通过
+  if (t.startsWith(q) && t.length > q.length) {
+    const suffix = t.substring(q.length);
+    const seasonPattern = /^(?:[\dⅡⅢⅣⅤⅥⅦⅧⅨⅩ]|[sS]\d+|Season\s*\d+|Part\s*\d+|第\d+|[第]?\s*[零一二三四五六七八九十]+\s*[季期部]|年番|合集|部(?!分)|部分|篇|剧场|完结|最终)/;
+    if (seasonPattern.test(suffix)) return true;
   }
 
   return false;
