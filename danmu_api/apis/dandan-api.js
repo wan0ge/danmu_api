@@ -1191,13 +1191,15 @@ function findCrossSeasonEpisodeMap(searchData, title, year, season, episode, pla
     }
     if (sNum === null) sNum = 1;
 
-    if (!seasonMap.has(sNum)) {
-      const bangumiData = getBangumiDataForMatch(anime, detailStore);
-      if (bangumiData?.success && bangumiData?.bangumi?.episodes) {
-        const filteredTmpEpisodes = bangumiData.bangumi.episodes.filter(ep => !globals.episodeTitleFilter.test(ep.episodeTitle));
-        const filteredEpisodes = filterSameEpisodeTitle(filteredTmpEpisodes);
+    const bangumiData = getBangumiDataForMatch(anime, detailStore);
+    if (bangumiData?.success && bangumiData?.bangumi?.episodes) {
+      const filteredTmpEpisodes = bangumiData.bangumi.episodes.filter(ep => !globals.episodeTitleFilter.test(ep.episodeTitle));
+      const filteredEpisodes = filterSameEpisodeTitle(filteredTmpEpisodes);
 
-        if (filteredEpisodes.length > 0) {
+      if (filteredEpisodes.length > 0) {
+        const existing = seasonMap.get(sNum);
+        // 同一季号存在多个候选时，保留集数更多的条目（如 TV 系列覆盖剧场版/特别篇）
+        if (!existing || filteredEpisodes.length > existing.episodes.length) {
           seasonMap.set(sNum, {
             anime: anime,
             episodes: filteredEpisodes,
