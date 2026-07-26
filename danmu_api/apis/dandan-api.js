@@ -923,7 +923,16 @@ export function filterSameEpisodeTitle(filteredTmpEpisodes) {
             return prevEpisode.episodeTitle === episode.episodeTitle;
         });
     });
-    return filteredEpisodes;
+    // 对聚合采集源（如360）中来自不同平台的同名集号做二次去重
+    // 同一集号保留首次出现（最早平台）的条目
+    const seenNumbers = new Set();
+    return filteredEpisodes.filter(ep => {
+        const num = extractEpisodeNumberFromTitle(ep.episodeTitle);
+        if (num === null) return true;
+        if (seenNumbers.has(num)) return false;
+        seenNumbers.add(num);
+        return true;
+    });
 }
 
 /**
