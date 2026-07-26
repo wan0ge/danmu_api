@@ -1206,7 +1206,8 @@ function findCrossSeasonEpisodeMap(searchData, title, year, season, episode, pla
 
     if (absoluteMatch) {
       if (platform && getPlatformMatchScore(extractEpisodeTitle(absoluteMatch.episodeTitle), platform) === 0) {
-          break;
+          currentSeason++;
+          continue;
       }
       log("info", `[system] [Spillover] 跨季溢出查找命中 (按绝对标题数字) -> 所在季：S${currentSeason} 集标题：${absoluteMatch.episodeTitle}`);
       bestRes = {
@@ -1220,7 +1221,8 @@ function findCrossSeasonEpisodeMap(searchData, title, year, season, episode, pla
     if (currentTargetEpisode <= allEps.length) {
       const targetEp = allEps[currentTargetEpisode - 1];
       if (platform && getPlatformMatchScore(extractEpisodeTitle(targetEp.episodeTitle), platform) === 0) {
-          break;
+          currentSeason++;
+          continue;
       }
       log("info", `[system] [Spillover] 跨季溢出查找命中 (按相对排位计算) -> 所在季：S${currentSeason} 集标题：${targetEp.episodeTitle}`);
       bestRes = {
@@ -1344,6 +1346,14 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
 
         // 匹配集数
         matchedEpisode = findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, platform);
+
+        // 当指定平台与候选动画源不匹配导致过滤后无匹配时，回退到不区分平台提取集数
+        if (!matchedEpisode && platform) {
+            const actualAnimePlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
+            if (getPlatformMatchScore(actualAnimePlatform, platform) === 0) {
+                matchedEpisode = findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, null);
+            }
+        }
 
         // 如果当前是用户的优选偏好，但由于平台配置限制导致未命中目标平台，则放宽条件无视平台限制提取集数
         if (!matchedEpisode && isPreferredAnime) {
