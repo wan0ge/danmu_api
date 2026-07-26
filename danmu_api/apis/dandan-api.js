@@ -300,9 +300,9 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
     }
   }
 
-  // 指定平台均无匹配数据时判定为不满足，不阻塞跨季扩展
+  // 优先平台无匹配数据时回退到不区分平台重新检查全部可用数据
   if (!anyPlatformHadData && targetPlatform) {
-    return false;
+    return checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAnimeDetailsMap, null);
   }
 
   return allSatisfied;
