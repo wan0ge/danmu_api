@@ -431,8 +431,13 @@ export function extractSeasonNumberFromAnimeTitle(animeTitle) {
   // 4) 尾部阿拉伯数字（如"某某 2" 或 "某某2"，但不超过2位）
   const trailingNumber = titleWithoutYear.match(/(?:^|\s|[^\d])(\d{1,2})$/);
   if (trailingNumber) {
+    const season = parseInt(trailingNumber[1], 10);
+    // 尾部"00"等不合法的季号不视为季数标识（如"机动战士高达00"）
+    if (season === 0) {
+      return { season: null, baseTitle: titleWithoutYear };
+    }
     return {
-      season: parseInt(trailingNumber[1], 10),
+      season,
       baseTitle: titleWithoutYear.slice(0, titleWithoutYear.lastIndexOf(trailingNumber[1])).trim(),
     };
   }
