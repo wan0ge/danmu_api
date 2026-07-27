@@ -303,8 +303,11 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
 
     if (!isEpisodeSatisfied) {
       let totalValidEpisodes = 0;
-      for (const capacity of seasonCapacities.values()) {
-        totalValidEpisodes += capacity;
+      for (const [sNum, capacity] of seasonCapacities) {
+        // 仅累加不超过查询季号的容量，防止跳跃季（如别名指示S3但S2缺失）导致虚高
+        if (sNum <= querySeason) {
+          totalValidEpisodes += capacity;
+        }
       }
       if (totalValidEpisodes < queryEpisode) {
         allSatisfied = false;
