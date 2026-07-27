@@ -1274,13 +1274,6 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
 
   // 遍历所有搜索结果，寻找最佳匹配
   for (const anime of searchData.animes) {
-    // 偏好过滤
-    const animeIsNotPrefer = 
-        globals.rememberLastSelect && 
-        preferAnimeId && 
-        String(anime.bangumiId) !== String(preferAnimeId) && 
-        String(anime.animeId) !== String(preferAnimeId);
-    if (animeIsNotPrefer) continue;
 
     let isMatch = false;
 
