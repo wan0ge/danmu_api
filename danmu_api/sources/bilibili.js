@@ -5,7 +5,7 @@ import { httpGet, httpGetWithStreamCheck } from "../utils/http-util.js";
 import { parseDanmakuBase64, md5, convertToAsciiSum, decodeHtmlEntities } from "../utils/codec-util.js";
 import { generateValidStartDate } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
-import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractEpisodeNumberFromTitle } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractEpisodeNumberFromTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 import { SegmentListResponse } from '../models/dandan-model.js';
 import { simplized } from "../utils/zh-util.js";
 import { getTmdbJaOriginalTitle, smartTitleReplace } from "../utils/tmdb-util.js";
@@ -631,7 +631,7 @@ export default class BilibiliSource extends BaseSource {
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
         const titleToCheck = anime._displayTitle || anime.title;
-        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
+        const s = extractSeasonWithAliasFallback(titleToCheck, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

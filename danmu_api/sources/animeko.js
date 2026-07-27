@@ -5,7 +5,7 @@ import { httpGet, httpPost } from "../utils/http-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
 import { simplized } from "../utils/zh-util.js";
 import { SegmentListResponse } from '../models/dandan-model.js';
-import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 import { searchBangumiData } from '../utils/bangumi-data-util.js';
 
 // =====================
@@ -744,7 +744,7 @@ export default class AnimekoSource extends BaseSource {
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
         const titleToCheck = anime.name_cn || anime.name;
-        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
+        const s = extractSeasonWithAliasFallback(titleToCheck, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

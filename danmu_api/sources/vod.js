@@ -4,7 +4,7 @@ import { log } from "../utils/log-util.js";
 import { httpGet } from "../utils/http-util.js";
 import { generateValidStartDate } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
-import { printFirst200Chars, titleMatches, sanitizeSearchKeyword, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { printFirst200Chars, titleMatches, sanitizeSearchKeyword, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 
 // =====================
 // 获取vod源播放链接
@@ -170,7 +170,7 @@ export default class VodSource extends BaseSource {
     // 初始列表预过滤机制：若用户指定了季度，优先检查结果中是否已包含匹配项
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
-        const s = extractSeasonNumberFromAnimeTitle(anime.vod_name).season;
+        const s = extractSeasonWithAliasFallback(anime.vod_name, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

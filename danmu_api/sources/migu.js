@@ -7,7 +7,7 @@ import { hexToInt } from "../utils/danmu-util.js";
 import { generateValidStartDate, time_to_second } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
 import { decrypt } from "../utils/migu-util.js";
-import { printFirst200Chars, titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { printFirst200Chars, titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 import { SegmentListResponse } from '../models/dandan-model.js';
 
 // =====================
@@ -208,7 +208,7 @@ class MiguSource extends BaseSource {
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
         const titleToCheck = anime.name || anime.title;
-        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
+        const s = extractSeasonWithAliasFallback(titleToCheck, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

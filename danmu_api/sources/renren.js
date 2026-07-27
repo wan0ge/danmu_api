@@ -5,7 +5,7 @@ import { getPathname, httpGet, sortedQueryString, updateQueryString } from "../u
 import { autoDecode, createHmacSha256, generateSign } from "../utils/codec-util.js";
 import { generateValidStartDate } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
-import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 import { SegmentListResponse } from '../models/dandan-model.js';
 
 // =====================
@@ -1170,7 +1170,7 @@ export default class RenrenSource extends BaseSource {
     // 初始列表预过滤机制：若用户指定了季度，优先检查结果中是否已包含匹配项
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
-        const s = extractSeasonNumberFromAnimeTitle(anime.title).season;
+        const s = extractSeasonWithAliasFallback(anime.title, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

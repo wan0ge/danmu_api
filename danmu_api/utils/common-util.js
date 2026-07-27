@@ -431,8 +431,13 @@ export function extractSeasonNumberFromAnimeTitle(animeTitle) {
   // 4) 尾部阿拉伯数字（如"某某 2" 或 "某某2"，但不超过2位）
   const trailingNumber = titleWithoutYear.match(/(?:^|\s|[^\d])(\d{1,2})$/);
   if (trailingNumber) {
+    const season = parseInt(trailingNumber[1], 10);
+    // 尾部"00"等不合法的季号不视为季数标识（如"机动战士高达00"）
+    if (season === 0) {
+      return { season: null, baseTitle: titleWithoutYear };
+    }
     return {
-      season: parseInt(trailingNumber[1], 10),
+      season,
       baseTitle: titleWithoutYear.slice(0, titleWithoutYear.lastIndexOf(trailingNumber[1])).trim(),
     };
   }
@@ -447,6 +452,25 @@ export function extractSeasonNumberFromAnimeTitle(animeTitle) {
   }
 
   return { season: null, baseTitle: titleWithoutYear };
+}
+
+/**
+ * 从主标题和别名中综合提取季号，主标题优先，主标题无季号时回退到别名
+ * 与 findCrossSeasonEpisodeMap 的 candidateTitles 遍历逻辑保持一致
+ * @param {string} title - 主标题
+ * @param {Array<string>|null} aliases - 别名列表
+ * @returns {number|null} 提取到的季号，无季号时返回 null
+ */
+export function extractSeasonWithAliasFallback(title, aliases) {
+    const s = extractSeasonNumberFromAnimeTitle(title).season;
+    if (s !== null) return s;
+
+    if (!aliases || !Array.isArray(aliases)) return null;
+    for (const alias of aliases) {
+        const as = extractSeasonNumberFromAnimeTitle(alias).season;
+        if (as !== null) return as;
+    }
+    return null;
 }
 
 // 从集标题中提取集数（支持多种格式：第1集、第01集、EP01、E01等）

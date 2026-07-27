@@ -12,7 +12,7 @@ import MangoSource from "./mango.js";
 import BilibiliSource from "./bilibili.js";
 import YoukuSource from "./youku.js";
 import BahamutSource from "./bahamut.js";
-import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 import { searchBangumiData } from '../utils/bangumi-data-util.js';
 
 const tencentSource = new TencentSource();
@@ -331,7 +331,7 @@ export default class DandanSource extends BaseSource {
     if (resolvedQuerySeason !== null) {
       const filtered = sourceAnimes.filter(anime => {
         const titleToCheck = anime._displayTitle || anime.animeTitle;
-        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
+        const s = extractSeasonWithAliasFallback(titleToCheck, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

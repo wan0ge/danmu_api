@@ -4,7 +4,7 @@ import { log } from "../utils/log-util.js";
 import { httpGet } from "../utils/http-util.js";
 import { generateValidStartDate } from "../utils/time-util.js";
 import { addAnime, removeEarliestAnime } from "../utils/cache-util.js";
-import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 
 // =====================
 // 获取360看源播放链接
@@ -256,7 +256,7 @@ export default class Kan360Source extends BaseSource {
     // 初始列表预过滤机制：若用户指定了季度，优先检查结果中是否已包含匹配项
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
-        const s = extractSeasonNumberFromAnimeTitle(anime.titleTxt).season;
+        const s = extractSeasonWithAliasFallback(anime.titleTxt, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 

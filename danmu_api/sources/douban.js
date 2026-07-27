@@ -1,7 +1,7 @@
 import BaseSource from './base.js';
 import { log } from "../utils/log-util.js";
 import { getDoubanDetail, searchDoubanTitles, searchDoubanTitlesByPublic } from "../utils/douban-util.js";
-import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle } from "../utils/common-util.js";
+import { titleMatches, getExplicitSeasonNumber, extractSeasonNumberFromAnimeTitle, extractSeasonWithAliasFallback } from "../utils/common-util.js";
 
 // =====================
 // 获取豆瓣源播放链接
@@ -143,7 +143,7 @@ export default class DoubanSource extends BaseSource {
     if (resolvedQuerySeason !== null) {
       const seasonFiltered = filteredAnimes.filter(anime => {
         const titleToCheck = anime?.target?.title || "";
-        const s = extractSeasonNumberFromAnimeTitle(titleToCheck).season;
+        const s = extractSeasonWithAliasFallback(titleToCheck, anime.aliases);
         return s === resolvedQuerySeason || (resolvedQuerySeason === 1 && s === null);
       });
 
