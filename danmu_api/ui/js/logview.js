@@ -64,6 +64,7 @@ function addLog(message, type = 'info') {
 }
 
 function renderLogs() {
+    const t0 = performance.now();
     const container = document.getElementById('log-container');
     const filterContainer = document.getElementById('log-filters') || createFilterContainer();
     
@@ -81,7 +82,8 @@ function renderLogs() {
         });
     }
 
-    container.innerHTML = filteredLogs.map(log => {
+    const tFilter = performance.now();
+    const htmlString = filteredLogs.map(log => {
         let highlightedMessage = log.message;
         
         // 行首连续标签高亮 (需双重转义)
@@ -95,9 +97,16 @@ function renderLogs() {
         
         return \`<div class="log-entry \${log.type}">[\${log.timestamp}] \${highlightedMessage}</div>\`;
     }).join('');
+    const tBuild = performance.now();
+    console.log('[perf] renderLogs filter:', (tFilter - t0).toFixed(1), 'ms, build:', (tBuild - tFilter).toFixed(1), 'ms, filtered:', filteredLogs.length, '/', logs.length);
+    container.innerHTML = htmlString;
+    const tDom = performance.now();
+    console.log('[perf] renderLogs innerHTML:', (tDom - tBuild).toFixed(1), 'ms');
     container.scrollTop = container.scrollHeight;
     
     updateFilterUI();
+    const tUI = performance.now();
+    console.log('[perf] updateFilterUI:', (tUI - tDom).toFixed(1), 'ms');
 }
 
 function createFilterContainer() {
@@ -153,14 +162,21 @@ window.setLogFilter = function(tag) {
 // 从API获取真实日志数据
 async function fetchRealLogs() {
     try {
+        const t0 = performance.now();
         // 日志查看使用普通token访问，不需要admin token
         const response = await fetch(buildApiUrl('/api/logs')); // 不使用admin token
         if (!response.ok) {
             throw new Error(\`HTTP error! status: \${response.status}\`);
         }
         const logText = await response.text();
+        const tFetch = performance.now();
+        console.log('[perf] fetch+response', (tFetch - t0).toFixed(1), 'ms, text length', logText.length);
+        
         // 解析日志文本为数组
         const logLines = logText.split('\\n').filter(line => line.trim() !== '');
+        const tSplit = performance.now();
+        console.log('[perf] split+filter', (tSplit - tFetch).toFixed(1), 'ms,', logLines.length, 'lines');
+        
         // 转换为logs数组格式
         logs = logLines.map(line => {
             // 解析日志行，提取时间戳、级别和消息
@@ -174,7 +190,12 @@ async function fetchRealLogs() {
             entry._category = getLogCategory(message);
             return entry;
         });
+        const tParse = performance.now();
+        console.log('[perf] map+getLogCategory', (tParse - tSplit).toFixed(1), 'ms');
         renderLogs();
+        const tRender = performance.now();
+        console.log('[perf] renderLogs', (tRender - tParse).toFixed(1), 'ms');
+        console.log('[perf] TOTAL fetchRealLogs', (tRender - t0).toFixed(1), 'ms');
     } catch (error) {
         console.error('Failed to fetch logs:', error);
         addLog(\`获取日志失败: \${error.message}\`, 'error');
