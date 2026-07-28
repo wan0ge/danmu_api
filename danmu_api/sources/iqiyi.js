@@ -277,7 +277,7 @@ export default class IqiyiSource extends BaseSource {
    * @param {Map|null} seasonAlbumCache - 跨多次调用共享的分季数据缓存，避免同一 album 重复请求
    * @returns {Promise<Array>} 分集列表
    */
-  async getEpisodes(id, querySeason = null, seasonAlbumCache = null) {
+  async getEpisodes(id, querySeason = null, seasonAlbumCache = null, inlinedAlbumIds = null, baseInfoCache = null) {
     try {
       log("info", `[iqiyi] 获取分集列表: media_id=${id}`);
 
@@ -302,67 +302,21 @@ export default class IqiyiSource extends BaseSource {
         }];
       }
 
-      // 第一步：将 video_id 转换为 entity_id
+      // 将 video_id 转换为 entity_id
       const entityId = /^\d+$/.test(id) ? id : this._videoIdToEntityId(id);
       if (!entityId) {
         log("error", `[iqiyi] 无法将 media_id '${id}' 转换为 entity_id`);
         return [];
       }
 
-      // 第二步：构建 API 请求参数
-      const params = {
-        entity_id: entityId,
-        device_id: 'qd5fwuaj4hunxxdgzwkcqmefeb3ww5hx',
-        auth_cookie: '',
-        user_id: '0',
-        vip_type: '-1',
-        vip_status: '0',
-        conduit_id: '',
-        pcv: '13.082.22866',
-        app_version: '13.082.22866',
-        ext: '',
-        app_mode: 'standard',
-        scale: '100',
-        timestamp: String(Date.now()),
-        src: 'pca_tvg',
-        os: '',
-        ad_ext: '{"r":"2.2.0-ares6-pure"}'
-      };
-
-      // 生成签名
-      params.sign = this._createSign(params);
-
-      // 第三步：请求 API
-      const queryString = buildQueryString(params);
-      const url = `https://www.iqiyi.com/prelw/tvg/v2/lw/base_info?${queryString}`;
-
-      // base_info 接口可能返回空响应或结构残缺的响应，此处最多重试两次再放弃
-      const MAX_EPISODE_RETRIES = 2;
-      const fetchEpisodeData = async () => {
-        try {
-          const resp = await httpGet(url, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'https://www.iqiyi.com/'
-            }
-          });
-          if (!resp || !resp.data) return null;
-          return typeof resp.data === "string" ? JSON.parse(resp.data) : resp.data;
-        } catch (error) {
-          log("error", `[iqiyi] 获取分集列表请求失败: ${error.message}`);
-          return null;
-        }
-      };
-
-      let data = await fetchEpisodeData();
-      for (let attempt = 0; attempt < MAX_EPISODE_RETRIES && (!data || data.status_code !== 0 || !data.data || !data.data.template); attempt++) {
-        log("info", `[iqiyi] 分集接口返回异常${data ? ` (status_code: ${data.status_code})` : " (响应为空或解析失败)"}，等待 3 秒后重试 (${attempt + 1}/${MAX_EPISODE_RETRIES})`);
-        await new Promise(r => setTimeout(r, 3000));
-        data = await fetchEpisodeData();
+      // 分集列表数据；本次搜索已在 handleAnimes 中统一拉取时直接复用，避免重复请求
+      let data;
+      if (baseInfoCache && baseInfoCache.has(id)) {
+        data = baseInfoCache.get(id);
+      } else {
+        data = await this._fetchBaseInfoData(entityId);
       }
-
       if (!data || data.status_code !== 0 || !data.data || !data.data.template) {
-        log("error", `[iqiyi] 获取分集列表失败: ${data ? `status_code: ${data.status_code}` : "响应为空或解析失败"}`);
         return [];
       }
 
@@ -454,8 +408,13 @@ export default class IqiyiSource extends BaseSource {
             // 分季数据是 URL 时需额外请求；以 album_id 为键复用已获取或正在获取的请求，
             // 避免同一次搜索内同一分季被并发或重复请求
             if (typeof videosData === 'string') {
-              const albumIdMatch = videosData.match(/album_id=(\d+)/);
-              const albumIdKey = albumIdMatch ? albumIdMatch[1] : videosData;
+              // 该季的 album_id 已通过其它结果的 album_episodes 内联数据获取时，无需再请求分季URL
+              const groupAlbumId = group.entity_id ? String(group.entity_id) : (videosData.match(/album_id=(\d+)/)?.[1] || videosData);
+              if (inlinedAlbumIds && inlinedAlbumIds.has(groupAlbumId)) {
+                log("info", `[iqiyi] 该季分集已通过内联数据获取，跳过分季URL: ${groupAlbumId}`);
+                continue;
+              }
+              const albumIdKey = groupAlbumId;
               let seasonPromise = fetchedSeasons.get(albumIdKey);
               if (!seasonPromise) {
                 seasonPromise = (async () => {
@@ -530,6 +489,98 @@ export default class IqiyiSource extends BaseSource {
       log("error", "[iqiyi] 获取分集出错:", error.message);
       return [];
     }
+  }
+
+  /**
+   * 请求分集列表接口并解析响应，接口返回空响应或结构残缺时最多重试两次
+   * @param {string} entityId - 实体 id
+   * @returns {Promise<Object|null>} 解析后的响应数据，失败返回 null
+   */
+  async _fetchBaseInfoData(entityId) {
+    const params = {
+      entity_id: entityId,
+      device_id: 'qd5fwuaj4hunxxdgzwkcqmefeb3ww5hx',
+      auth_cookie: '',
+      user_id: '0',
+      vip_type: '-1',
+      vip_status: '0',
+      conduit_id: '',
+      pcv: '13.082.22866',
+      app_version: '13.082.22866',
+      ext: '',
+      app_mode: 'standard',
+      scale: '100',
+      timestamp: String(Date.now()),
+      src: 'pca_tvg',
+      os: '',
+      ad_ext: '{"r":"2.2.0-ares6-pure"}'
+    };
+    params.sign = this._createSign(params);
+
+    const queryString = buildQueryString(params);
+    const url = `https://www.iqiyi.com/prelw/tvg/v2/lw/base_info?${queryString}`;
+
+    // base_info 接口可能返回空响应或结构残缺的响应，此处最多重试两次再放弃
+    const MAX_EPISODE_RETRIES = 2;
+    const fetchEpisodeData = async () => {
+      try {
+        const resp = await httpGet(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.iqiyi.com/'
+          }
+        });
+        if (!resp || !resp.data) return null;
+        return typeof resp.data === "string" ? JSON.parse(resp.data) : resp.data;
+      } catch (error) {
+        log("error", `[iqiyi] 获取分集列表请求失败: ${error.message}`);
+        return null;
+      }
+    };
+
+    let data = await fetchEpisodeData();
+    for (let attempt = 0; attempt < MAX_EPISODE_RETRIES && (!data || data.status_code !== 0 || !data.data || !data.data.template); attempt++) {
+      log("info", `[iqiyi] 分集接口返回异常${data ? ` (status_code: ${data.status_code})` : " (响应为空或解析失败)"}，等待 3 秒后重试 (${attempt + 1}/${MAX_EPISODE_RETRIES})`);
+      await new Promise(r => setTimeout(r, 3000));
+      data = await fetchEpisodeData();
+    }
+
+    if (!data || data.status_code !== 0 || !data.data || !data.data.template) {
+      log("error", `[iqiyi] 获取分集列表失败: ${data ? `status_code: ${data.status_code}` : "响应为空或解析失败"}`);
+      return null;
+    }
+    return data;
+  }
+
+  /**
+   * 全季搜索时统一拉取各结果的分集列表，收集其中以内联方式返回的季 album_id；
+   * 这些季无需再经分季URL获取，供 getEpisodes 判断跳过对应请求
+   * @param {Array} animes - 搜索结果数组
+   * @param {Map} baseInfoCache - 复用已拉取的分集列表数据，避免重复请求
+   * @returns {Promise<Set<string>>} 已被内联的季 album_id 集合
+   */
+  async _collectInlinedAlbumIds(animes, baseInfoCache) {
+    const inlined = new Set();
+    await Promise.all(animes.map(async (anime) => {
+      if (anime.mediaId.startsWith('movie_')) return;
+      const entityId = /^\d+$/.test(anime.mediaId) ? anime.mediaId : this._videoIdToEntityId(anime.mediaId);
+      if (!entityId) return;
+      const data = await this._fetchBaseInfoData(entityId);
+      baseInfoCache.set(anime.mediaId, data);
+      if (!data || !data.data || !data.data.template) return;
+      const tabs = data.data.template.tabs || [];
+      if (tabs.length === 0) return;
+      for (const block of (tabs[0].blocks || [])) {
+        if (block.bk_type === 'album_episodes' && block.data?.data) {
+          for (const group of block.data.data) {
+            if (group.videos && typeof group.videos === 'object' && group.videos.feature_paged && group.entity_id) {
+              inlined.add(String(group.entity_id));
+            }
+          }
+        }
+      }
+    }));
+    return inlined;
   }
 
   /**
@@ -728,9 +779,18 @@ export default class IqiyiSource extends BaseSource {
 
     // 跨多个搜索结果共享分季数据缓存，避免同一 album 的分季URL被重复请求
     const seasonAlbumCache = new Map();
+
+    // 全季搜索时先统一拉取各结果的分集列表，收集已被内联的季 album_id；
+    // 这些季无需再经分季URL获取，后续处理各结果时据此跳过对应请求
+    let inlinedAlbumIds = null;
+    const baseInfoCache = new Map();
+    if (resolvedQuerySeason === null) {
+      inlinedAlbumIds = await this._collectInlinedAlbumIds(filteredAnimes, baseInfoCache);
+    }
+
     const processIqiyiAnimes = await Promise.all(filteredAnimes.map(async (anime) => {
         try {
-          const eps = await this.getEpisodes(anime.mediaId, resolvedQuerySeason, seasonAlbumCache);
+          const eps = await this.getEpisodes(anime.mediaId, resolvedQuerySeason, seasonAlbumCache, inlinedAlbumIds, baseInfoCache);
 
           // 格式化分集列表
           const links = [];
