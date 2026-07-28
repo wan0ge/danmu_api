@@ -1306,7 +1306,8 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
                 // 构造一个虚拟的 anime 对象传入 matchSeason，这样当命中别名时，matchSeason 才能正确判断后缀
                 const tempAnime = { ...anime, animeTitle: candTitle };
                 
-                if (matchSeason(tempAnime, title, season) || animeIsPrefer) {
+                const seasonOk = matchSeason(tempAnime, title, season);
+                if (seasonOk || animeIsPrefer) {
                     isMatch = true;
                     break; // 别名命中跳出
                 }
@@ -1425,8 +1426,8 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
             };
         }
 
-        // 如果没有指定平台偏好 (platform 为空) 或已命中最高优先级的手动优选，立刻跳出查找
-        if (!platform || isPreferredAnime) {
+        // 已命中最高优先级的手动优选，或不存在平台偏好且无待匹配的优选条目时立刻跳出查找
+        if (isPreferredAnime || (!platform && !preferAnimeId)) {
             break; 
         }
         
