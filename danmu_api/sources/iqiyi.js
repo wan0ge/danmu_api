@@ -336,22 +336,33 @@ export default class IqiyiSource extends BaseSource {
       const queryString = buildQueryString(params);
       const url = `https://www.iqiyi.com/prelw/tvg/v2/lw/base_info?${queryString}`;
 
-      const response = await httpGet(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://www.iqiyi.com/'
+      // base_info 接口可能返回空响应或结构残缺的响应，此处最多重试两次再放弃
+      const MAX_EPISODE_RETRIES = 2;
+      const fetchEpisodeData = async () => {
+        try {
+          const resp = await httpGet(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://www.iqiyi.com/'
+            }
+          });
+          if (!resp || !resp.data) return null;
+          return typeof resp.data === "string" ? JSON.parse(resp.data) : resp.data;
+        } catch (error) {
+          log("error", `[iqiyi] 获取分集列表请求失败: ${error.message}`);
+          return null;
         }
-      });
+      };
 
-      if (!response || !response.data) {
-        log("error", "[iqiyi] 获取分集响应为空");
-        return [];
+      let data = await fetchEpisodeData();
+      for (let attempt = 0; attempt < MAX_EPISODE_RETRIES && (!data || data.status_code !== 0 || !data.data || !data.data.template); attempt++) {
+        log("info", `[iqiyi] 分集接口返回异常${data ? ` (status_code: ${data.status_code})` : " (响应为空或解析失败)"}，等待 3 秒后重试 (${attempt + 1}/${MAX_EPISODE_RETRIES})`);
+        await new Promise(r => setTimeout(r, 3000));
+        data = await fetchEpisodeData();
       }
 
-      const data = typeof response.data === "string" ? JSON.parse(response.data) : response.data;
-
-      if (data.status_code !== 0 || !data.data || !data.data.template) {
-        log("error", `[iqiyi] API 返回错误，status_code: ${data.status_code}`);
+      if (!data || data.status_code !== 0 || !data.data || !data.data.template) {
+        log("error", `[iqiyi] 获取分集列表失败: ${data ? `status_code: ${data.status_code}` : "响应为空或解析失败"}`);
         return [];
       }
 
