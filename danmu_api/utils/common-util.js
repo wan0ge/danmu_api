@@ -269,15 +269,15 @@ export function getExplicitSeasonNumber(text) {
  * @param {number|null} parsedSeason - 解析出的目标季度
  * @returns {boolean} 是否匹配
  */
-export function titleMatches(title, query, parsedSeason = null) {
+export function titleMatches(title, query, parsedSeason = null, forceNonStrict = false) {
   if (title == null || query == null) return false;
 
   const titleText = String(title);
   const queryText = String(query);
   if (!titleText || !queryText) return false;
 
-  // 策略1：严格模式仅允许头部或完全匹配
-  if (globals.strictTitleMatch) return strictTitleMatch(titleText, queryText);
+  // 策略1：严格模式仅允许头部或完全匹配（forceNonStrict 为 true 时跳过，用于偏好记录等场景）
+  if (!forceNonStrict && globals.strictTitleMatch) return strictTitleMatch(titleText, queryText);
 
   // 剧名杂音清理：移除画质/配音/版本等杂音词，避免阻塞匹配
   const tagFilter = globals.titleNoiseFilter || null;

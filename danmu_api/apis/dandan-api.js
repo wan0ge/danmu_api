@@ -2376,11 +2376,12 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
       }
     }
 
-    log("info", `[system] [LogVar-API] animeTitle：${animeTitle}; lastTitle：${lastTitle}; titleMatches：${titleMatches(animeTitle, lastTitle)}`);
+    log("info", `[system] [LogVar-API] animeTitle：${animeTitle}; lastTitle：${lastTitle}; titleMatches：${titleMatches(animeTitle, lastTitle, null, true)}`);
 
     // 校验番剧标题或别名是否匹配最新搜索/匹配上下文，别名检查用于兼容不同源对同一番剧的标题命名差异
-    const titleOrAliasMatches = titleMatches(animeTitle, lastTitle) ||
-        (Array.isArray(animeAliases) && animeAliases.some(alias => titleMatches(alias, lastTitle)));
+    // 偏好记录使用非严格匹配（forceNonStrict=true），因为用户手动选择不应受严格标题匹配限制
+    const titleOrAliasMatches = titleMatches(animeTitle, lastTitle, null, true) ||
+        (Array.isArray(animeAliases) && animeAliases.some(alias => titleMatches(alias, lastTitle, null, true)));
 
     if (titleOrAliasMatches) {
       log("info", `[system] [LogVar-API] excute setPreferByAnimeId`);
