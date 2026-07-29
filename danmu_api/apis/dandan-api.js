@@ -810,7 +810,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
               if (!a) continue;
               // 仅从与查询相关的条目中提取季号，避免无关源的搜索结果污染 maxSeason
               const testTitle = a.animeTitle || a.title || a.name || a.name_cn || "";
-              if (testTitle && !titleMatches(testTitle, queryTitle)) continue;
+              if (testTitle && !titleMatches(testTitle, queryTitle, null, true)) continue;
               const s = extractSeasonNumberFromAnimeTitle(testTitle).season;
               if (s !== null && s > maxSeason) maxSeason = s;
             }
