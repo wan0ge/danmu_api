@@ -808,7 +808,10 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
             const list = (item && Array.isArray(item.list)) ? item.list : [item];
             for (const a of list) {
               if (!a) continue;
-              const s = extractSeasonNumberFromAnimeTitle(a.animeTitle || a.title || "").season;
+              // 仅从与查询相关的条目中提取季号，避免无关源的搜索结果污染 maxSeason
+              const testTitle = a.animeTitle || a.title || a.name || a.name_cn || "";
+              if (testTitle && !titleMatches(testTitle, queryTitle)) continue;
+              const s = extractSeasonNumberFromAnimeTitle(testTitle).season;
               if (s !== null && s > maxSeason) maxSeason = s;
             }
           }
