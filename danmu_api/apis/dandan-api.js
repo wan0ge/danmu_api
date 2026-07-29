@@ -818,14 +818,10 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
         }
       }
 
-      // 即使 maxSeason 不大于 querySeason，也至少尝试一次跨季扩展。某些源（如
-      // dandan）的高季条目经 handleAnimes 内的关联作品发现机制获取，原始搜索结果
-      // 中无直接季号标记，需执行跨季调用才能触发发现
-      const effectiveMaxSeason = Math.max(maxSeason, querySeason + 1);
-      if (effectiveMaxSeason > querySeason) {
-        log("info", `[system] [LogVar-API] Episode ${queryEpisode} not satisfied in Season ${querySeason}. Parallel mapping to S${querySeason + 1}~S${effectiveMaxSeason}...`);
+      if (maxSeason > querySeason) {
+        log("info", `[system] [LogVar-API] Episode ${queryEpisode} not satisfied in Season ${querySeason}. Parallel mapping to S${querySeason + 1}~S${maxSeason}...`);
         const expandPromises = [];
-        for (let s = querySeason + 1; s <= effectiveMaxSeason; s++) {
+        for (let s = querySeason + 1; s <= maxSeason; s++) {
           expandPromises.push((async () => {
             const seasonAnimes = [];
             await executeSourceHandlers(resultData, queryTitle, seasonAnimes, requestAnimeDetailsMap, s, preferAnimeId, preferSource);
