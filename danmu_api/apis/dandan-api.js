@@ -239,7 +239,7 @@ export function matchSeason(anime, queryTitle, season) {
  * @param {string|null} targetPlatform 期望优先验证的目标平台
  * @returns {boolean} 是否满足需求
  */
-function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAnimeDetailsMap, targetPlatform) {
+function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAnimeDetailsMap, targetPlatform, unsatisfiedOut = null) {
   if (queryEpisode === null || querySeason === null) return true;
 
   let targetPlatforms = [];
@@ -311,7 +311,7 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
       }
       if (totalValidEpisodes < queryEpisode) {
         allSatisfied = false;
-        break;
+        if (unsatisfiedOut) unsatisfiedOut.add(tPlat);
       }
     }
   }
@@ -796,9 +796,10 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
     }
 
     // 判断当前获取的季度是否已包含用户指定的集数
-    const isEpisodeSatisfied = checkEpisodeSatisfied(curAnimes, querySeason, queryEpisode, requestAnimeDetailsMap, targetPlatform);
+    const unsatisfiedPlatforms = new Set();
+    const isEpisodeSatisfied = checkEpisodeSatisfied(curAnimes, querySeason, queryEpisode, requestAnimeDetailsMap, targetPlatform, unsatisfiedPlatforms);
 
-    // 若未包含且用户指定了季度，推导最大季并并行映射 S2、S3 等结果，合并同一次搜索下的后续季以辅助跨季匹配
+    // 若未包含且用户指定了季度，推导最大季并扩展至后续季以辅助跨季匹配
     if (!isEpisodeSatisfied && querySeason !== null) {
       let maxSeason = querySeason;
       for (const source of globals.sourceOrderArr) {
@@ -808,9 +809,9 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
             const list = (item && Array.isArray(item.list)) ? item.list : [item];
             for (const a of list) {
               if (!a) continue;
-              // 仅从与查询相关的条目中提取季号，避免无关源的搜索结果污染 maxSeason
+              // 用titleMatches过滤与查询无关的条目，仅从相关结果中提取季号
               const testTitle = a.animeTitle || a.title || a.name || a.name_cn || "";
-              if (testTitle && !titleMatches(testTitle, queryTitle, null, true)) continue;
+              if (testTitle && !titleMatches(testTitle, queryTitle, null, true, 0.6)) continue;
               const s = extractSeasonNumberFromAnimeTitle(testTitle).season;
               if (s !== null && s > maxSeason) maxSeason = s;
             }
@@ -821,18 +822,25 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       if (maxSeason > querySeason) {
         log("info", `[system] [LogVar-API] Episode ${queryEpisode} not satisfied in Season ${querySeason}. Parallel mapping to S${querySeason + 1}~S${maxSeason}...`);
         const expandPromises = [];
-        for (let s = querySeason + 1; s <= maxSeason; s++) {
+        for (const source of globals.sourceOrderArr) {
+          if (!resultData[source]) continue;
+          // 在PLATFORM_ORDER模式下，跳过已满足平台的对应源
+          if (targetPlatform && !unsatisfiedPlatforms.has(source)) continue;
+          // 源间并发、源内顺序，防止同源并发导致模块级缓存竞态
           expandPromises.push((async () => {
-            const seasonAnimes = [];
-            await executeSourceHandlers(resultData, queryTitle, seasonAnimes, requestAnimeDetailsMap, s, preferAnimeId, preferSource);
-            // 缓存额外季度的结果
-            if (seasonAnimes.length > 0) {
-              setSearchCache(`${queryTitle}_S${s}`, seasonAnimes.map(({ links, ...pureAnime }) => pureAnime), requestAnimeDetailsMap);
+            const sourceResults = [];
+            for (let s = querySeason + 1; s <= maxSeason; s++) {
+              const seasonAnimes = [];
+              await executeSourceHandlers({ [source]: resultData[source] }, queryTitle, seasonAnimes, requestAnimeDetailsMap, s, preferAnimeId, preferSource);
+              if (seasonAnimes.length > 0) {
+                setSearchCache(`${queryTitle}_S${s}`, seasonAnimes.map(({ links, ...pureAnime }) => pureAnime), requestAnimeDetailsMap);
+              }
+              sourceResults.push(seasonAnimes);
             }
-            return seasonAnimes;
+            return sourceResults;
           })());
         }
-        const expandedResults = await Promise.all(expandPromises);
+        const expandedResults = (await Promise.all(expandPromises)).flat();
         for (const res of expandedResults) {
           curAnimes.push(...res);
         }
