@@ -260,7 +260,18 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
     let platformHasData = false;
 
     for (const anime of animesList) {
-      const actualPlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
+      // 候选平台由番剧身份标签(标题 from 段或 source)与所挂集标签共同决定，使身份名(如tencent)与优选平台名(如qq)不一致但集上挂有目标标签的源也能被正确识别为该平台有数据
+      const identityPlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
+      const bData = getBangumiDataForMatch(anime, requestAnimeDetailsMap);
+      const epPlatforms = new Set();
+      if (bData?.success && bData.bangumi?.episodes) {
+        for (const ep of bData.bangumi.episodes) {
+          const epPlat = extractEpisodeTitle(ep.episodeTitle);
+          if (epPlat) epPlatforms.add(epPlat);
+        }
+      }
+      const actualPlatform = [...new Set([identityPlatform, ...epPlatforms].filter(Boolean)
+          .flatMap(p => p.split(/[&＆]/).map(s => s.trim().toLowerCase())).filter(s => s))].join('&');
 
       if (tPlat !== '_any_' && getPlatformMatchScore(actualPlatform, tPlat) === 0) {
         continue;
@@ -268,7 +279,6 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
 
       platformHasData = true;
 
-      const bData = getBangumiDataForMatch(anime, requestAnimeDetailsMap);
       if (bData?.success && bData.bangumi?.episodes) {
         const validEps = bData.bangumi.episodes.filter(ep => !globals.episodeTitleFilter.test(ep.episodeTitle));
         const filtered = filterSameEpisodeTitle(validEps);
@@ -1464,10 +1474,15 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
   if (!bestRes.episode && season && episode) {
     const spilloverRes = findCrossSeasonEpisodeMap(searchData, title, year, season, episode, platform, detailStore);
     if (spilloverRes.resEpisode) {
+      // 候选平台由番剧身份标签与命中集所挂平台标签共同决定，与 matchAniAndEp 评分口径保持一致
+      const spillIdentity = extractPlatformFromTitle(spilloverRes.resAnime.animeTitle) || spilloverRes.resAnime.source;
+      const spillEpPlatform = spilloverRes.resEpisode ? extractEpisodeTitle(spilloverRes.resEpisode.episodeTitle) : null;
+      const spillCandidate = [...new Set([spillIdentity, spillEpPlatform].filter(Boolean)
+          .flatMap(p => p.split(/[&＆]/).map(s => s.trim().toLowerCase())).filter(s => s))].join('&');
       bestRes = {
         episode: spilloverRes.resEpisode,
         anime: spilloverRes.resAnime,
-        score: platform ? getPlatformMatchScore(extractPlatformFromTitle(spilloverRes.resAnime.animeTitle) || spilloverRes.resAnime.source, platform) : 1
+        score: platform ? getPlatformMatchScore(spillCandidate, platform) : 1
       };
     }
   }
