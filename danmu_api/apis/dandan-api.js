@@ -258,6 +258,7 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
     let isEpisodeSatisfied = false;
     const seasonCapacities = new Map();
     let platformHasData = false;
+    const providedSources = new Set();
 
     for (const anime of animesList) {
       // 候选平台由番剧身份标签(标题 from 段或 source)与所挂集标签共同决定，使身份名(如tencent)与优选平台名(如qq)不一致但集上挂有目标标签的源也能被正确识别为该平台有数据
@@ -278,6 +279,7 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
       }
 
       platformHasData = true;
+      providedSources.add(anime.source);
 
       if (bData?.success && bData.bangumi?.episodes) {
         const validEps = bData.bangumi.episodes.filter(ep => !globals.episodeTitleFilter.test(ep.episodeTitle));
@@ -321,7 +323,9 @@ function checkEpisodeSatisfied(animesList, querySeason, queryEpisode, requestAni
       }
       if (totalValidEpisodes < queryEpisode) {
         allSatisfied = false;
-        if (unsatisfiedOut) unsatisfiedOut.add(tPlat);
+        if (unsatisfiedOut) {
+          for (const s of providedSources) unsatisfiedOut.add(s);
+        }
       }
     }
   }
