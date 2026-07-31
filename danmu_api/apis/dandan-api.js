@@ -950,9 +950,9 @@ export function filterSameEpisodeTitle(filteredTmpEpisodes) {
 function getPlatformMatchScore(candidatePlatform, targetPlatform) {
   if (!candidatePlatform || !targetPlatform) return 0;
   
-  // 预处理：按 & 分割，转小写，去空格
-  const cParts = candidatePlatform.split('&').map(s => s.trim().toLowerCase()).filter(s => s);
-  const tParts = targetPlatform.split('&').map(s => s.trim().toLowerCase()).filter(s => s);
+  // 预处理：按半角/全角 & 分割，转小写去空格并去重，避免合并标题重复标签抬高杂质长度导致评分失真
+  const cParts = [...new Set(candidatePlatform.split(/[&＆]/).map(s => s.trim().toLowerCase()).filter(s => s))];
+  const tParts = [...new Set(targetPlatform.split(/[&＆]/).map(s => s.trim().toLowerCase()).filter(s => s))];
   
   let matchCount = 0;
 
@@ -980,7 +980,7 @@ function getPlatformMatchScore(candidatePlatform, targetPlatform) {
 
 // 辅助函数：从标题中提取来源平台列表 (新增函数 - 适配合并源标题格式)
 function extractPlatformFromTitle(title) {
-    const match = title.match(/from\s+([a-zA-Z0-9&]+)/i);
+    const match = title.match(/from\s+([a-zA-Z0-9&＆]+)/i);
     return match ? match[1] : null;
 }
 
@@ -1417,12 +1417,16 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
     // 3. 匹配结果处理与评分比较
     if (matchedEpisode) {
         // 计算当前匹配的得分
-        const actualPlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
+        // 候选平台由番剧身份标签（标题 from 段或 source）与命中集所挂平台标签共同决定，使身份名（如 tencent）与优选平台名（如 qq）不一致但集上挂有该标签的源也能正确加分
+        const identityPlatform = extractPlatformFromTitle(anime.animeTitle) || anime.source;
+        const epPlatform = matchedEpisode ? extractEpisodeTitle(matchedEpisode.episodeTitle) : null;
+        const candidatePlatform = [...new Set([identityPlatform, epPlatform].filter(Boolean)
+            .flatMap(p => p.split(/[&＆]/).map(s => s.trim().toLowerCase())).filter(s => s))].join('&');
         let currentScore = 0;
-        
+
         if (platform) {
             // 如果指定了平台偏好，计算匹配得分
-            currentScore = getPlatformMatchScore(actualPlatform, platform);
+            currentScore = getPlatformMatchScore(candidatePlatform, platform);
         } else {
             // 如果没有指定平台偏好，默认为 1
             currentScore = 1;
