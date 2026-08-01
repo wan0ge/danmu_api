@@ -368,18 +368,31 @@ export default class DandanSource extends BaseSource {
 
           // 相似度高于10%时，对每个关联作品单独判断是否符合展开条件：
           // 关联作品标题含季度信息（避免范围发散），或初始搜索结果不少于25个（API25个结果上限，用相关作品突破）
-          if (similarity >= 0.1 && details.relateds && Array.isArray(details.relateds) && canExpandRelateds) {
+          if (similarity >= 0.1 && details.relateds && Array.isArray(details.relateds)) {
             for (const rel of details.relateds) {
               const hasSeason = extractSeasonNumberFromAnimeTitle(rel.animeTitle).season !== null;
               if (!existingIds.has(rel.animeId) && (hasSeason || initialCount >= 25)) {
                 existingIds.add(rel.animeId);
-                queue.push({
-                  animeId: rel.animeId,
-                  animeTitle: rel.animeTitle,
-                  imageUrl: rel.imageUrl,
-                  rating: rel.rating || 0,
-                  isRelated: true // 标记动态挖掘出的条目为相关作品
-                });
+                // 关联作品追加到sourceAnimes供跨季扩展感知
+                if (!sourceAnimes.some(a => a.animeId === rel.animeId)) {
+                  sourceAnimes.push({
+                    animeId: rel.animeId,
+                    animeTitle: rel.animeTitle,
+                    title: rel.animeTitle,
+                    imageUrl: rel.imageUrl,
+                    rating: rel.rating || 0,
+                    isRelated: true
+                  });
+                }
+                if (canExpandRelateds) {
+                  queue.push({
+                    animeId: rel.animeId,
+                    animeTitle: rel.animeTitle,
+                    imageUrl: rel.imageUrl,
+                    rating: rel.rating || 0,
+                    isRelated: true // 标记动态挖掘出的条目为相关作品
+                  });
+                }
               }
             }
           }
