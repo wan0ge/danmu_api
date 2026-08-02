@@ -85,9 +85,6 @@ export default class DandanSource extends BaseSource {
             log("info", "[dandan] 原始搜索成功，但未返回任何结果 (source: original)");
             return { success: false, source: 'original' };
           }
-
-          // 原始搜索有结果，中断 TMDB 流程
-          tmdbAbortController.abort();
           const animes = resp.data.animes;
           log("info", `[dandan] dandanSearchresp (original): ${JSON.stringify(animes)}`);
           log("info", `[dandan] 返回 ${animes.length} 条结果 (source: original)`);
@@ -165,16 +162,24 @@ export default class DandanSource extends BaseSource {
         }
       })();
 
-      // 等待两个搜索任务同时完成，优先采用原始搜索结果
-      const [originalResult, tmdbResult] = await Promise.all([
-        originalSearchPromise,
-        tmdbSearchPromise
-      ]);
-
-      // 优先返回原始搜索结果
+      // 搜索结果预过滤：先拿到原始结果再决定是否等待TMDB兜底
+      const originalResult = await originalSearchPromise;
       if (originalResult.success) {
-        return originalResult.data;
+        const resolvedSeason = getExplicitSeasonNumber(keyword);
+        const preFiltered = originalResult.data.filter(anime => {
+          if (anime.isTmdbSource) return true;
+          const t = anime.animeTitle || anime.title || '';
+          return titleMatches(t, keyword, resolvedSeason, false, 0.5);
+        });
+        if (preFiltered.length > 0) {
+          tmdbAbortController.abort();
+          return preFiltered;
+        }
+        // 初筛清空原始结果时不abort，等待TMDB兜底
       }
+
+      // 原始搜索无结果或被初筛清空，等待并返回TMDB搜索结果
+      const tmdbResult = await tmdbSearchPromise;
 
       // 原始搜索无结果，返回 TMDB 搜索结果
       if (tmdbResult.success) {
