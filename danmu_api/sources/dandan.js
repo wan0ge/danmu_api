@@ -169,8 +169,12 @@ export default class DandanSource extends BaseSource {
         const preFiltered = originalResult.data.filter(anime => {
           if (anime.isTmdbSource) return true;
           const t = anime.animeTitle || anime.title || '';
-          return titleMatches(t, keyword, resolvedSeason, true, 0.5);
+          log("info", `[debug-prefilter] 调用titleMatches: t="${t}"(${t.length}chars) kw="${keyword}"(${keyword.length}chars) season=${resolvedSeason}`);
+          const matched = titleMatches(t, keyword, resolvedSeason, true, 0.5);
+          log("info", `[debug-prefilter] id=${anime.animeId} title="${t}" keyword="${keyword}" season=${resolvedSeason} match=${matched}`);
+          return matched;
         });
+        log("info", `[debug-prefilter] 结果: original=${originalResult.data.length}条 preFiltered=${preFiltered.length}条`);
         if (preFiltered.length > 0) {
           tmdbAbortController.abort();
           // 记录原始搜索结果的全部animeId，供handleAnimes关联作品恢复误过滤条目使用
