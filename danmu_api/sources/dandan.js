@@ -169,10 +169,12 @@ export default class DandanSource extends BaseSource {
         const preFiltered = originalResult.data.filter(anime => {
           if (anime.isTmdbSource) return true;
           const t = anime.animeTitle || anime.title || '';
-          return titleMatches(t, keyword, resolvedSeason, false, 0.5);
+          return titleMatches(t, keyword, resolvedSeason, true, 0.5);
         });
         if (preFiltered.length > 0) {
           tmdbAbortController.abort();
+          // 记录原始搜索结果的全部animeId，供handleAnimes关联作品恢复误过滤条目使用
+          preFiltered._originalAnimeIds = originalResult.data.map(a => a.animeId);
           return preFiltered;
         }
         // 初筛清空原始结果时不abort，等待TMDB兜底
@@ -396,6 +398,36 @@ export default class DandanSource extends BaseSource {
                     rating: rel.rating || 0,
                     isRelated: true // 标记动态挖掘出的条目为相关作品
                   });
+                }
+              }
+            }
+
+            // 关联作品补回预过滤误剔除的原始搜索结果条目（如翻译差异导致误过滤）
+            if (!isTargetFoundInInitial && Array.isArray(details.relateds)) {
+              const originalIds = sourceAnimes._originalAnimeIds;
+              if (Array.isArray(originalIds) && originalIds.length > 0) {
+                const recoveredIds = new Set(originalIds);
+                for (const rel of details.relateds) {
+                  if (recoveredIds.has(rel.animeId) && !existingIds.has(rel.animeId)) {
+                    existingIds.add(rel.animeId);
+                    if (!sourceAnimes.some(a => a.animeId === rel.animeId)) {
+                      sourceAnimes.push({
+                        animeId: rel.animeId,
+                        animeTitle: rel.animeTitle,
+                        title: rel.animeTitle,
+                        imageUrl: rel.imageUrl,
+                        rating: rel.rating || 0,
+                        isRelated: true
+                      });
+                    }
+                    queue.push({
+                      animeId: rel.animeId,
+                      animeTitle: rel.animeTitle,
+                      imageUrl: rel.imageUrl,
+                      rating: rel.rating || 0,
+                      isRelated: true // 标记动态挖掘出的条目为相关作品
+                    });
+                  }
                 }
               }
             }
