@@ -169,12 +169,8 @@ export default class DandanSource extends BaseSource {
         const preFiltered = originalResult.data.filter(anime => {
           if (anime.isTmdbSource) return true;
           const t = anime.animeTitle || anime.title || '';
-          log("info", `[debug-prefilter] 调用titleMatches: t="${t}"(${t.length}chars) kw="${keyword}"(${keyword.length}chars) season=${resolvedSeason}`);
-          const matched = titleMatches(t, keyword, resolvedSeason, true, 0.5);
-          log("info", `[debug-prefilter] id=${anime.animeId} title="${t}" keyword="${keyword}" season=${resolvedSeason} match=${matched}`);
-          return matched;
+          return titleMatches(t, keyword, resolvedSeason, true, 0.8);
         });
-        log("info", `[debug-prefilter] 结果: original=${originalResult.data.length}条 preFiltered=${preFiltered.length}条`);
         if (preFiltered.length > 0) {
           tmdbAbortController.abort();
           // 记录原始搜索结果的全部animeId，供handleAnimes关联作品恢复误过滤条目使用
@@ -187,9 +183,14 @@ export default class DandanSource extends BaseSource {
       // 原始搜索无结果或被初筛清空，等待并返回TMDB搜索结果
       const tmdbResult = await tmdbSearchPromise;
 
-      // 原始搜索无结果，返回 TMDB 搜索结果
+      // 原始搜索无结果，对TMDB日语原名结果做最终预过滤
       if (tmdbResult.success) {
-        return tmdbResult.data;
+        const resolvedSeason = getExplicitSeasonNumber(keyword);
+        const tmdbFiltered = tmdbResult.data.filter(anime => {
+          const t = anime.animeTitle || anime.title || '';
+          return titleMatches(t, keyword, resolvedSeason, true, 0.19);
+        });
+        if (tmdbFiltered.length > 0) return tmdbFiltered;
       }
 
       log("info", `[dandan] 原始搜索和基于TMDB的搜索均未返回任何结果 (当前搜索词: ${keyword})`);
