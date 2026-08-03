@@ -103,7 +103,8 @@ function parseSemanticVersion(versionStr) {
 
 /**
  * 比较两个语义化版本号
- * 标准-semver 逐段数值比较
+ * 自定义版本格式 upstreamPatch*100+internalRev（patch≥1000时识别），
+ * 比较时还原为上游追踪版本以保证与官方版本号的正确对比
  * @param {string} verA 版本A
  * @param {string} verB 版本B
  * @returns {number} 正数表示 A>B, 负数表示 A<B, 0 表示相等
@@ -115,7 +116,10 @@ function compareVersions(verA, verB) {
 
     if (a.major !== b.major) return a.major - b.major;
     if (a.minor !== b.minor) return a.minor - b.minor;
-    if (a.patch !== b.patch) return a.patch - b.patch;
+
+    const patchA = a.patch >= 1000 ? Math.floor(a.patch / 100) : a.patch;
+    const patchB = b.patch >= 1000 ? Math.floor(b.patch / 100) : b.patch;
+    if (patchA !== patchB) return patchA - patchB;
 
     return 0;
 }
