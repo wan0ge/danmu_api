@@ -5,19 +5,18 @@ let isMergeMode = false;
 let stagingTags = [];
 
 const UI_THEMES = {
-    ocean: '海湾蓝',
-    forest: '森林绿',
-    graphite: '石墨夜',
-    berry: '莓果红',
-    monochrome: '黑白简约',
-    sunset: '暖霞橙',
-    aurora: '极光青',
-    mist: '晨雾灰',
-    terminal: '终端绿',
-    lavender: '经典默认'
+    shinyo: '新叶绿',
+    sakura: '哔哩粉',
+    tianyi: '天依蓝',
+    hatsune: '初音青',
+    sakuragi: '樱木红',
+    violet: '罗兰紫',
+    amber: 'LCL橘',
+    lavender: '经典默认',
 };
 
 const UI_THEME_STORAGE_KEY = 'logvar_ui_theme';
+const UI_SCHEME_STORAGE_KEY = 'logvar_ui_color_scheme';
 
 function getStoredTheme() {
     try {
@@ -28,18 +27,21 @@ function getStoredTheme() {
     }
 }
 
+function getStoredColorScheme() {
+    try { return localStorage.getItem(UI_SCHEME_STORAGE_KEY) || null; } catch(e) { return null; }
+}
+
+function storeColorScheme(scheme) {
+    try { localStorage.setItem(UI_SCHEME_STORAGE_KEY, scheme); } catch(e) {}
+}
+
 function storeTheme(theme) {
-    try {
-        localStorage.setItem(UI_THEME_STORAGE_KEY, theme);
-        return true;
-    } catch (error) {
-        return false;
-    }
+    try { localStorage.setItem(UI_THEME_STORAGE_KEY, theme); return true; } catch (error) { return false; }
 }
 
 function applyTheme(theme) {
     const normalizedTheme = String(theme || '').toLowerCase();
-    const selectedTheme = Object.prototype.hasOwnProperty.call(UI_THEMES, normalizedTheme) ? normalizedTheme : 'ocean';
+    const selectedTheme = Object.prototype.hasOwnProperty.call(UI_THEMES, normalizedTheme) ? normalizedTheme : 'shinyo';
     document.body.dataset.theme = selectedTheme;
 
     document.querySelectorAll('[data-theme-option]').forEach(button => {
@@ -49,6 +51,7 @@ function applyTheme(theme) {
 
     const label = document.getElementById('theme-current-label');
     if (label) label.textContent = 'UI_THEME · ' + UI_THEMES[selectedTheme];
+    if (typeof updateColorSchemeToggle === 'function') updateColorSchemeToggle();
     return selectedTheme;
 }
 
@@ -81,7 +84,7 @@ async function selectTheme(theme) {
     }
 }
 
-applyTheme(getStoredTheme() || document.body.dataset.theme || 'ocean');
+applyTheme(getStoredTheme() || document.body.dataset.theme || 'shinyo');
 
 // 导出当前管理员可见的环境变量配置
 async function exportSystemConfig() {
@@ -176,7 +179,7 @@ function normalizeImportedConfig(data) {
             return;
         }
         if (key === 'UI_THEME') {
-            value = value.trim().toLowerCase() || 'ocean';
+            value = value.trim().toLowerCase() || 'shinyo';
             if (!Object.prototype.hasOwnProperty.call(UI_THEMES, value)) {
                 invalidKeys.push(key + ' (不支持的主题: ' + value + ')');
                 return;
@@ -1061,13 +1064,13 @@ function renderValueInput(item) {
                             <label class="offset-label">副源实体（副源剧名@源）</label>
                             <input type="text" id="merge-sec-entity" class="offset-input" placeholder="例: 我推的孩子/S01@bahamut" onfocus="setMergeFocus('sec')">
                         </div>
-                        <div style="width: 60px;">
+                        <div style="width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
                             <label class="offset-label" style="text-align: center; display: block;">关系</label>
-                            <select id="merge-action" class="offset-input" onchange="onMergeActionChange()" style="cursor: pointer; padding: 6px; text-align: center; font-weight: bold; font-size: 14px;">
+                            <select id="merge-action" class="offset-input" onchange="onMergeActionChange()" style="cursor: pointer; padding: 6px; text-align: center; font-weight: bold; font-size: 15px; width: 100%;">
                                 <option value="->">-&gt;</option>
                                 <option value="×">×</option>
                             </select>
-                            <div id="merge-action-hint" style="font-size: 11px; color: #666; text-align: center; margin-top: 4px;">合并</div>
+                            <div id="merge-action-hint" style="font-size: 11px; color: var(--theme-muted); text-align: center; margin-top: 3px;">合并</div>
                         </div>
                         <div style="flex: 1; min-width: 120px;">
                             <label class="offset-label">主源实体（主源剧名@源）</label>
@@ -1523,7 +1526,7 @@ function appendMergeRule() {
     toggleMergeRulePanel();
 }
 
-// 调整数字
+// 递增/递减数字输入
 function adjustNumber(delta) {
     const display = document.getElementById('num-value');
     const slider = document.getElementById('num-slider');
@@ -2059,7 +2062,7 @@ function handleTouchMove(e) {
     // 防止默认的触摸行为
     e.preventDefault();
     
-    // 使用 requestAnimationFrame 来优化性能
+    // 通过 requestAnimationFrame 批量调度 DOM 更新，避免频繁重排
     if (window.requestAnimationFrame) {
         window.requestAnimationFrame(() => {
             // 获取触摸点位置
@@ -2958,8 +2961,10 @@ function renderAnimeCachePanel(data, listContainer) {
     const generateButtons = (title, source) => {
         if (currentKey === 'CUSTOM_MERGE_RULES') {
             return \`
-                <button type="button" class="btn btn-sm btn-xs" onclick="fillMergeEntity('sec', '\${title}', '\${source}')">设为副</button>
-                <button type="button" class="btn btn-sm btn-primary btn-xs" onclick="fillMergeEntity('prim', '\${title}', '\${source}')">设为主</button>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                    <button type="button" class="btn btn-sm btn-xs" onclick="fillMergeEntity('sec', '\${title}', '\${source}')">设为副</button>
+                    <button type="button" class="btn btn-sm btn-primary btn-xs" onclick="fillMergeEntity('prim', '\${title}', '\${source}')">设为主</button>
+                </div>
             \`;
         } else if (currentKey === 'DANMU_OFFSET') {
             return \`

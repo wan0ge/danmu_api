@@ -32,14 +32,20 @@ export const HTML_TEMPLATE = /* html */ `
 <body data-theme="globals.uiTheme">
     <script>
         try {
-            const storedTheme = localStorage.getItem('logvar_ui_theme');
-            const supportedThemes = ['ocean', 'forest', 'graphite', 'berry', 'monochrome', 'sunset', 'aurora', 'mist', 'terminal', 'lavender'];
-            if (supportedThemes.includes(storedTheme)) document.body.dataset.theme = storedTheme;
+            var storedTheme = localStorage.getItem('logvar_ui_theme');
+            var validThemes = ['shinyo','sakura','tianyi','hatsune','sakuragi','violet','amber','lavender'];
+            if (validThemes.indexOf(storedTheme) !== -1) { document.body.dataset.theme = storedTheme; }
+            var storedScheme = localStorage.getItem('logvar_ui_color_scheme');
+            if (storedScheme === 'dark' || storedScheme === 'light') {
+                document.body.dataset.colorScheme = storedScheme;
+            }
         } catch (error) {
             // localStorage may be unavailable in restricted browser contexts.
         }
     </script>
     <div class="container">
+        <div class="corner-fold"></div>
+        <button class="theme-corner-toggle" id="theme-corner-toggle" onclick="toggleColorScheme()" title="切换明暗模式" aria-label="切换明暗模式">🌙</button>
         <!-- 进度条 -->
         <div class="progress-container" id="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
@@ -53,11 +59,11 @@ export const HTML_TEMPLATE = /* html */ `
                 </div>
                 <div class="version-info">
                     <span class="version-badge">当前版本: <span id="current-version">v${globals.version}</span></span>
-                    <span class="update-badge" id="update-badge">
+                    <a class="update-badge" id="update-badge" href="https://t.me/s/logvar_danmu_channel" target="_blank" rel="noopener" title="查看更新通知">
                         🎉 最新版本: <span id="latest-version">加载中...</span>
-                    </span>
-                    <span class="api-endpoint-badge">
-                        API端点: <span id="api-endpoint" title="点击复制API端点" style="cursor: pointer; color: #4CAF50; font-weight: bold;" onclick="copyApiEndpoint()">加载中...</span>
+                    </a>
+                    <span class="api-endpoint-badge" onclick="copyApiEndpoint()" title="点击复制API端点" style="cursor: pointer;">
+                        API端点: <span id="api-endpoint" style="color: #4CAF50; font-weight: bold;">加载中...</span>
                     </span>
                 </div>
             </div>
@@ -337,38 +343,32 @@ export const HTML_TEMPLATE = /* html */ `
                 <div class="theme-settings" id="theme-settings" hidden>
                     <div class="theme-settings-copy">
                         <h3>界面主题</h3>
-                        <span class="theme-current-label" id="theme-current-label">UI_THEME · 海湾蓝</span>
+                        <span class="theme-current-label" id="theme-current-label">UI_THEME · 新叶绿</span>
                     </div>
                     <div class="theme-options" role="radiogroup" aria-label="界面主题选择">
-                        <button type="button" role="radio" class="theme-option" data-theme-option="ocean" aria-checked="false" onclick="selectTheme('ocean')" title="海湾蓝">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #145b6f"></i><i style="background: #159b8f"></i><i style="background: #dfe9f1"></i></span><span class="theme-option-label">海湾蓝</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="shinyo" aria-checked="false" onclick="selectTheme('shinyo')" title="新叶绿">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#8cb48c"></i><i style="background:#7aa37a"></i><i style="background:#e8efe8"></i></span><span class="theme-option-label">新叶绿</span>
                         </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="forest" aria-checked="false" onclick="selectTheme('forest')" title="森林绿">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #245c45"></i><i style="background: #b36a3c"></i><i style="background: #e5eee8"></i></span><span class="theme-option-label">森林绿</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="sakura" aria-checked="false" onclick="selectTheme('sakura')" title="哔哩粉">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#f09199"></i><i style="background:#e08189"></i><i style="background:#ece6ef"></i></span><span class="theme-option-label">哔哩粉</span>
                         </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="graphite" aria-checked="false" onclick="selectTheme('graphite')" title="石墨夜">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #0e1115"></i><i style="background: #55b8c9"></i><i style="background: #20242a"></i></span><span class="theme-option-label">石墨夜</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="tianyi" aria-checked="false" onclick="selectTheme('tianyi')" title="天依蓝">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#00a2ff"></i><i style="background:#0090e8"></i><i style="background:#e7edf5"></i></span><span class="theme-option-label">天依蓝</span>
                         </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="berry" aria-checked="false" onclick="selectTheme('berry')" title="莓果红">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #702846"></i><i style="background: #315b8a"></i><i style="background: #f1e5eb"></i></span><span class="theme-option-label">莓果红</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="hatsune" aria-checked="false" onclick="selectTheme('hatsune')" title="初音青">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#39c5bb"></i><i style="background:#2eb3a9"></i><i style="background:#e6f2f0"></i></span><span class="theme-option-label">初音青</span>
                         </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="monochrome" aria-checked="false" onclick="selectTheme('monochrome')" title="黑白简约">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #111111"></i><i style="background: #767676"></i><i style="background: #f2f2f2"></i></span><span class="theme-option-label">黑白简约</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="sakuragi" aria-checked="false" onclick="selectTheme('sakuragi')" title="樱木红">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#e9485e"></i><i style="background:#d63d52"></i><i style="background:#f0e7e9"></i></span><span class="theme-option-label">樱木红</span>
                         </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="sunset" aria-checked="false" onclick="selectTheme('sunset')" title="暖霞橙">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #4d344b"></i><i style="background: #b54132"></i><i style="background: #ebeef2"></i></span><span class="theme-option-label">暖霞橙</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="violet" aria-checked="false" onclick="selectTheme('violet')" title="罗兰紫">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#a682e6"></i><i style="background:#9570d8"></i><i style="background:#ede8f5"></i></span><span class="theme-option-label">罗兰紫</span>
                         </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="aurora" aria-checked="false" onclick="selectTheme('aurora')" title="极光青">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #164a4a"></i><i style="background: #d49a3a"></i><i style="background: #dfe8e6"></i></span><span class="theme-option-label">极光青</span>
-                        </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="mist" aria-checked="false" onclick="selectTheme('mist')" title="晨雾灰">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #40566b"></i><i style="background: #a94f42"></i><i style="background: #e7ebef"></i></span><span class="theme-option-label">晨雾灰</span>
-                        </button>
-                        <button type="button" role="radio" class="theme-option" data-theme-option="terminal" aria-checked="false" onclick="selectTheme('terminal')" title="终端绿">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #050706"></i><i style="background: #4faf75"></i><i style="background: #1d231f"></i></span><span class="theme-option-label">终端绿</span>
+                        <button type="button" role="radio" class="theme-option" data-theme-option="amber" aria-checked="false" onclick="selectTheme('amber')" title="LCL橘">
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#f78c50"></i><i style="background:#e67a40"></i><i style="background:#f0ebe6"></i></span><span class="theme-option-label">LCL橘</span>
                         </button>
                         <button type="button" role="radio" class="theme-option" data-theme-option="lavender" aria-checked="false" onclick="selectTheme('lavender')" title="经典默认">
-                            <span class="theme-swatches" aria-hidden="true"><i style="background: #1a2980"></i><i style="background: #26d0ce"></i><i style="background: #a0b9e8"></i></span><span class="theme-option-label">经典默认</span>
+                            <span class="theme-swatches" aria-hidden="true"><i style="background:#667eea"></i><i style="background:#5a6fd6"></i><i style="background:#eef0f8"></i></span><span class="theme-option-label">经典默认</span>
                         </button>
                     </div>
                 </div>
@@ -443,17 +443,19 @@ export const HTML_TEMPLATE = /* html */ `
         </p>
         <p class="footer-text">本项目仅为个人学习爱好开发，代码开源。如有任何侵权行为，请联系本人删除。</p>
         <p class="footer-text">本项目完全免费，不收取任何费用，请勿上当受骗。</p>
-        <p class="footer-links">
-            <a href="https://t.me/ddjdd_bot" target="_blank" class="footer-link">💬 TG MSG ROBOT</a>
-            <a href="https://t.me/logvar_danmu_group" target="_blank" class="footer-link">👥 TG GROUP</a>
-            <a href="https://t.me/logvar_danmu_channel" target="_blank" class="footer-link">📢 TG CHANNEL</a>
-            <a href="https://github.com/huangxd-/danmu_api" target="_blank" class="footer-link github-link">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg" alt="GitHub" class="github-icon">
-                GitHub Repo
-            </a>
-        </p>
         <p>有问题提issue或私信机器人都ok</p>
     </footer>
+
+    <!-- 底部链接栏 -->
+    <nav class="footer-bar">
+        <a href="https://t.me/ddjdd_bot" target="_blank" class="footer-bar-link">💬 TG MSG ROBOT</a>
+        <a href="https://t.me/logvar_danmu_group" target="_blank" class="footer-bar-link">👥 TG GROUP</a>
+        <a href="https://t.me/logvar_danmu_channel" target="_blank" class="footer-bar-link">📢 TG CHANNEL</a>
+        <a href="https://github.com/huangxd-/danmu_api" target="_blank" class="footer-bar-link github-link">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg" alt="GitHub" class="github-icon">
+            GitHub Repo
+        </a>
+    </nav>
 
     <script>
         ${mainJsContent}
