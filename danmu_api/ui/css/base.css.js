@@ -9,6 +9,10 @@ export const baseCssContent = /* css */ `
     box-sizing: border-box;
 }
 
+:root {
+    color-scheme: light dark;
+}
+
 html {
     overflow-x: hidden;
     overflow-y: scroll;
@@ -39,10 +43,6 @@ html.modal-open {
 
 html:has(body[data-color-scheme="dark"]).modal-open {
     background: rgba(0, 0, 0, 0.95);
-}
-
-html[data-color-scheme="dark"].modal-open {
-    background: rgba(0, 0, 0, 0.85);
 }
 
 body {

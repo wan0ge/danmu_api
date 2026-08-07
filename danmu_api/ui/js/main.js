@@ -184,12 +184,22 @@ function loadEnvVariables() {
             const originalEnvVars = config.originalEnvVars || {};
             // 浏览器偏好覆盖部署环境变量；云函数更新变量通常要等重新部署后才会进入新实例。
             applyTheme(getStoredTheme() || originalEnvVars.UI_THEME || document.body.dataset.theme || 'shinyo');
-            // 恢复独立的深浅色偏好（不在 applyTheme 内设置，避免覆盖用户的选择）
+            // 恢复独立的深浅色偏好：已存储 > 系统偏好 > 默认浅色
             if (!document.body.dataset.colorScheme) {
                 var scheme = getStoredColorScheme();
-                if (scheme) document.body.dataset.colorScheme = scheme;
+                if (!scheme) {
+                    scheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                }
+                document.body.dataset.colorScheme = scheme;
             }
             updateColorSchemeToggle();
+            // 用户未手动选择时，跟随系统深浅色变更
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+                if (!getStoredColorScheme()) {
+                    document.body.dataset.colorScheme = e.matches ? 'dark' : 'light';
+                    updateColorSchemeToggle();
+                }
+            });
 
             // 重新组织数据结构以适配现有UI
             envVariables = {};
