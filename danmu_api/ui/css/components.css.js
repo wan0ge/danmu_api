@@ -156,6 +156,10 @@ export const componentsCssContent = /* css */ `
     line-height: 1.4;
 }
 
+.btn:hover {
+    transform: translateY(-1px);
+}
+
 .btn:active {
     transform: scale(0.97);
 }
@@ -2465,8 +2469,8 @@ body[data-theme$="-dark"] .heatmap-bar {
 .child-mapping-container {
     display: none;
     flex-direction: column;
-    gap: 4px;
-    padding: 6px 10px 10px 46px;
+    gap: 2px;
+    padding: 6px 10px 10px 12px;
     border-top: 1px solid var(--theme-border);
     background: var(--theme-panel-strong);
 }
@@ -2489,12 +2493,16 @@ body[data-theme$="-dark"] .heatmap-bar {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
-    padding: 3px 0;
+    font-size: 13px;
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+.mapping-row:nth-child(even) {
+    background: var(--theme-panel-bg);
 }
 
 .mapping-status {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     flex-shrink: 0;
 }

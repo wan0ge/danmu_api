@@ -1065,12 +1065,11 @@ function renderValueInput(item) {
                             <input type="text" id="merge-sec-entity" class="offset-input" placeholder="例: 我推的孩子/S01@bahamut" onfocus="setMergeFocus('sec')">
                         </div>
                         <div style="width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
-                            <label class="offset-label" style="text-align: center; display: block;">关系</label>
-                            <select id="merge-action" class="offset-input" onchange="onMergeActionChange()" style="cursor: pointer; padding: 6px; text-align: center; font-weight: bold; font-size: 15px; width: 100%;">
+                            <label class="offset-label" style="text-align: center; display: block;">关系：<span id="merge-action-hint" style="font-weight: normal; color: var(--theme-muted);">合并</span></label>
+                            <select id="merge-action" class="offset-input" onchange="onMergeActionChange()" style="cursor: pointer; text-align: center; font-weight: bold; font-size: 15px;">
                                 <option value="->">-&gt;</option>
                                 <option value="×">×</option>
                             </select>
-                            <div id="merge-action-hint" style="font-size: 11px; color: var(--theme-muted); text-align: center; margin-top: 3px;">合并</div>
                         </div>
                         <div style="flex: 1; min-width: 120px;">
                             <label class="offset-label">主源实体（主源剧名@源）</label>
