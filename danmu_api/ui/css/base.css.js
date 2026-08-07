@@ -18,27 +18,12 @@ html {
     overflow-y: scroll;
     scrollbar-gutter: stable;
     background: var(--theme-page-bg);
-}
-
-::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    border-radius: 999px;
-    background: linear-gradient(180deg, var(--theme-accent), var(--theme-accent-hover));
-    border: 2px solid transparent;
-    background-clip: padding-box;
+    color-scheme: light !important;
 }
 
 html.modal-open {
     overflow-y: hidden;
-    background: rgba(0, 0, 0, 0.58);
+    background: rgba(0, 0, 0, 0.59);
 }
 
 html:has(body[data-color-scheme="dark"]).modal-open {

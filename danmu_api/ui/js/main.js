@@ -720,7 +720,7 @@ const DANMAKU_DICT = [
 ];
 
 // 共享弹幕发射间隔 0.5~1.5s
-var DANMAKU_INTERVAL_MS = 500;
+const DANMAKU_INTERVAL_MS = 500;
 
 // ===== 背景弹幕系统 =====
 (function initBgDanmaku() {

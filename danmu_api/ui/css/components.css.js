@@ -2094,11 +2094,6 @@ body.modal-open {
     flex-shrink: 0;
 }
 
-.color-pool-lightness input {
-    flex: 1;
-    accent-color: var(--theme-accent);
-}
-
 .color-pool-actions {
     display: flex;
     gap: 6px;
