@@ -1213,6 +1213,10 @@ body.modal-open {
     font-weight: 600;
 }
 
+.merge-mode-btn:hover {
+    transform: translateY(-1px);
+}
+
 .staging-area {
     display: none;
     background: var(--theme-accent-soft);
@@ -1260,6 +1264,10 @@ body.modal-open {
     user-select: none;
     max-width: 100%;
     word-break: break-all;
+}
+
+.staging-tag:hover {
+    transform: translateY(-1px);
 }
 
 .staging-tag.drag-over {
@@ -1965,6 +1973,10 @@ body.modal-open {
     border-radius: 8px;
     background: var(--theme-input-bg);
     font-size: 12px;
+}
+
+.color-pool-item:hover {
+    transform: translateY(-1px);
 }
 
 .color-pool-swatch {

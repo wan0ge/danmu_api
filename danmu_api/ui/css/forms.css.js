@@ -234,6 +234,7 @@ input:checked + .slider:before {
 
 .tag-option:hover {
     background: var(--theme-panel-bg);
+    transform: translateY(-1px);
 }
 
 .tag-option.selected {
