@@ -2106,7 +2106,7 @@ body.modal-open {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--theme-border);
-    border-radius: var(--app-radius-input);
+    border-radius: 8px;
     font-size: 13px;
     font-family: ui-monospace, monospace;
     resize: vertical;
