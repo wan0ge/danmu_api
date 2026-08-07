@@ -1312,7 +1312,7 @@ body.modal-open {
     justify-content: center;
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(82, 166, 125, 0.25);
-    transition: all 0.22s var(--app-ease-smooth);
+    transition: box-shadow 0.22s var(--app-ease-smooth), filter 0.22s var(--app-ease-smooth), transform 0.22s var(--app-ease-smooth) !important;
 }
 
 .confirm-merge-btn:hover {
@@ -1323,7 +1323,6 @@ body.modal-open {
 .confirm-merge-btn:disabled {
     background: var(--theme-panel-strong);
     cursor: not-allowed;
-    transform: none;
     box-shadow: none;
 }
 
