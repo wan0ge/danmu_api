@@ -12,6 +12,29 @@ export const baseCssContent = /* css */ `
 html {
     overflow-x: hidden;
     overflow-y: scroll;
+    scrollbar-gutter: stable;
+    background: var(--theme-page-bg);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--theme-accent), var(--theme-accent-hover));
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+html.modal-open {
+    overflow-y: hidden;
+    background: rgba(0, 0, 0, 0.55);
 }
 
 body {

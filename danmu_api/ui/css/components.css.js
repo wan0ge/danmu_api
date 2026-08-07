@@ -806,6 +806,20 @@ body.modal-open {
     position: relative;
 }
 
+.modal-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 24px 0;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(var(--app-primary-rgb), 0.30);
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;

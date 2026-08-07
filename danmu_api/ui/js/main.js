@@ -722,7 +722,7 @@ var DANMAKU_INTERVAL_MS = 500;
     const container = document.createElement('div');
     container.id = 'bg-danmaku-layer';
     container.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:-1;';
-    document.documentElement.appendChild(container);
+    document.body.appendChild(container);
 
     let running = true;
     let timer = null;
