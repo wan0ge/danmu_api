@@ -34,7 +34,15 @@ html {
 
 html.modal-open {
     overflow-y: hidden;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.58);
+}
+
+html:has(body[data-color-scheme="dark"]).modal-open {
+    background: rgba(0, 0, 0, 0.95);
+}
+
+html[data-color-scheme="dark"].modal-open {
+    background: rgba(0, 0, 0, 0.85);
 }
 
 body {
