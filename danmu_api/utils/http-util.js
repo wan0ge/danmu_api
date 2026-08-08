@@ -62,7 +62,9 @@ function linkSignal(externalSignal, internalController) {
 export async function httpGet(url, options = {}) {
   // 单次搜索请求内 HTTP 响应复用: 若当前请求上下文已激活复用缓存且本 URL 已缓存, 直接返回克隆结果, 跳过重复网络请求
   const requestHttpCache = httpCacheContext.getStore();
-  if (requestHttpCache && requestHttpCache.has(url)) {
+  // 重试调用传入 bypassCache 时跳过复用，避免复用首次已缓存的失败响应而令重试被静默吞掉
+  const bypassCache = options.bypassCache === true;
+  if (requestHttpCache && !bypassCache && requestHttpCache.has(url)) {
     const cached = requestHttpCache.get(url);
     log("info", `[${sourceLogContext.getStore() || 'system'}] [请求复用] 复用请求内已缓存的 HTTP 响应, 跳过重复请求: ${url}`);
     return { data: structuredClone(cached.data), status: cached.status, headers: { ...cached.headers } };
@@ -221,7 +223,7 @@ export async function httpGet(url, options = {}) {
       }
 
       // 将本次响应记入请求内复用缓存, 供同请求内相同 URL 的后续请求直接复用
-      if (requestHttpCache) {
+      if (requestHttpCache && !bypassCache) {
         requestHttpCache.set(url, { data: structuredClone(parsedData), status: response.status, headers });
       }
 
