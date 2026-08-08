@@ -1507,6 +1507,11 @@ async function matchAniAndEp(season, episode, year, searchData, title, req, plat
     }
   }
 
+  // 指定平台偏好时仅当最佳结果真实命中该平台（得分 > 0）才视为有效匹配，否则视作该平台无可用源交由上层按 PLATFORM_ORDER 顺延到下一平台或回退默认匹配，避免首个命中标题但平台得分 0 的番剧被误判为该平台匹配而阻断后续平台递进
+  if (platform && bestRes.score <= 0) {
+    return { resEpisode: null, resAnime: null };
+  }
+
   return { resEpisode: bestRes.episode, resAnime: bestRes.anime };
 }
 
