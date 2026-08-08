@@ -1,5 +1,5 @@
 import { globals } from '../configs/globals.js';
-import { getPageTitle, jsonResponse, httpGet, sourceLogContext, toLogSourceName } from '../utils/http-util.js';
+import { getPageTitle, jsonResponse, httpGet, sourceLogContext, toLogSourceName, runWithHttpCache, httpCacheContext } from '../utils/http-util.js';
 import { log } from '../utils/log-util.js'
 import { simplized } from '../utils/zh-util.js';
 import { setRedisKey, updateRedisCaches } from "../utils/redis-util.js";
@@ -16,7 +16,7 @@ import {
   extractEpisodeTitle, convertChineseNumber, parseFileName, createDynamicPlatformOrder, normalizeSpaces, 
   extractYear, titleMatches, extractAnimeInfo, extractEpisodeNumberFromTitle, extractSeasonNumberFromAnimeTitle, extractAnimeTitle
 } from "../utils/common-util.js";
-import { getTMDBChineseTitle } from "../utils/tmdb-util.js";
+import { getTMDBChineseTitle, getTmdbSeasonBoundaries } from "../utils/tmdb-util.js";
 import { applyMergeLogic, mergeDanmakuList, MERGE_DELIMITER, alignSourceTimelines } from "../utils/merge-util.js";
 import { getHanjutvSourceLabel } from "../utils/hanjutv-util.js";
 import AIClient from '../utils/ai-util.js';
@@ -480,6 +480,14 @@ async function executeSourceHandlers(resultData, queryTitle, targetAnimesList, r
 
 // Extracted function for GET /api/v2/search/anime
 export async function searchAnime(url, preferAnimeId = null, preferSource = null, detailStore = null, targetPlatform = null, forceRefresh = false) {
+  // 单次搜索请求内启用 HTTP 响应复用缓存: 作为各源通用的请求级复用安全网, 借助 AsyncLocalStorage 做请求级隔离
+  if (httpCacheContext.getStore()) {
+    return searchAnimeBody(url, preferAnimeId, preferSource, detailStore, targetPlatform, forceRefresh);
+  }
+  return runWithHttpCache(() => searchAnimeBody(url, preferAnimeId, preferSource, detailStore, targetPlatform, forceRefresh));
+}
+
+async function searchAnimeBody(url, preferAnimeId = null, preferSource = null, detailStore = null, targetPlatform = null, forceRefresh = false) {
   let queryTitle = url.searchParams.get("keyword");
 
   // 搜索词杂音清理：移除画质/配音/版本等杂音词后再提交源站搜索
@@ -491,6 +499,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
   querySeason = querySeason ? parseInt(querySeason, 10) : null;
   let queryEpisode = url.searchParams.get("episode");
   queryEpisode = queryEpisode ? parseInt(queryEpisode, 10) : null;
+  let tmdbSeasonBoundaries = null;
   log("info", `[system] [searchAnime] Search anime with keyword: ${queryTitle}, target season: ${querySeason}, target episode: ${queryEpisode}`);
 
   // 关键字为空直接返回，不用多余查询
@@ -847,6 +856,24 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
 
       if (maxSeason > querySeason) {
         log("info", `[system] [LogVar-API] Episode ${queryEpisode} not satisfied in Season ${querySeason}. Parallel mapping to S${querySeason + 1}~S${maxSeason}...`);
+        // 依据 bangumi-data 的 TMDB 季边界定位目标集所在季, 跨季扩展直接收敛至目标季并跳过无关中间季, 集数扣减交由 findCrossSeasonEpisodeMap 借 TMDB 边界完成
+        let targetSeasons = [];
+        if (globals.useBangumiData && queryEpisode) {
+          tmdbSeasonBoundaries = await getTmdbSeasonBoundaries(queryTitle);
+          if (tmdbSeasonBoundaries && tmdbSeasonBoundaries.length >= 2) {
+            for (let i = tmdbSeasonBoundaries.length - 1; i >= 0; i--) {
+              const b = tmdbSeasonBoundaries[i];
+              if (queryEpisode >= b.startEpisode) {
+                targetSeasons = [b.order];
+                break;
+              }
+            }
+          }
+        }
+
+        const expansionStart = targetSeasons.length > 0 ? Math.min(...targetSeasons) : querySeason + 1;
+        const expansionEnd = targetSeasons.length > 0 ? Math.max(...targetSeasons) : maxSeason;
+
         const expandPromises = [];
         for (const source of globals.sourceOrderArr) {
           if (!resultData[source]) continue;
@@ -855,7 +882,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
           // 源间并发、源内顺序，防止同源并发导致模块级缓存竞态
           expandPromises.push((async () => {
             const sourceResults = [];
-            for (let s = querySeason + 1; s <= maxSeason; s++) {
+            for (let s = expansionStart; s <= expansionEnd; s++) {
               const seasonAnimes = [];
               await executeSourceHandlers({ [source]: resultData[source] }, queryTitle, seasonAnimes, requestAnimeDetailsMap, s, preferAnimeId, preferSource);
               if (seasonAnimes.length > 0) {
@@ -952,6 +979,7 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
       success: true,
       errorMessage: "",
       animes: responseAnimes,
+      tmdbSeasonBoundaries,
     });
 
 }
@@ -1259,13 +1287,40 @@ function findCrossSeasonEpisodeMap(searchData, title, year, season, episode, pla
     }
   }
 
+  // 依据 TMDB 季边界推导「季号 -> 该季标准集数」, 使跨季顺延按剧集标准结构扣减而非依赖单源实际集数
+  const boundaries = searchData.tmdbSeasonBoundaries;
+  const seasonBoundaryCount = new Map();
+  if (Array.isArray(boundaries) && boundaries.length >= 2) {
+    for (let i = 0; i < boundaries.length; i++) {
+      const cur = boundaries[i];
+      const next = boundaries[i + 1];
+      seasonBoundaryCount.set(cur.order, next ? next.startEpisode - cur.startEpisode : null);
+    }
+  }
+
+
   let currentTargetEpisode = episode;
   let currentSeason = season;
   let bestRes = { anime: null, episode: null, score: 0 };
 
-  while (seasonMap.has(currentSeason)) {
+  while (seasonMap.has(currentSeason) || seasonBoundaryCount.has(currentSeason)) {
     const seasonData = seasonMap.get(currentSeason);
+    // 该季标准集数: 优先取 TMDB 边界推导值, 末季或边界缺失时回退至实际过滤后集数
+    const boundaryCount = seasonBoundaryCount.get(currentSeason);
+
+    // 中间季未拉取详情(已被 TMDB 边界跳过)时, 仅按其标准集数扣减以推进到目标季, 不参与实际集标题匹配
+    if (!seasonData) {
+      if (boundaryCount && boundaryCount > 0) {
+        currentTargetEpisode -= boundaryCount;
+        currentSeason++;
+        continue;
+      }
+      break;
+    }
+
     const allEps = seasonData.episodes;
+    const seasonEpisodeTotal = (boundaryCount && boundaryCount > 0) ? boundaryCount : allEps.length;
+
 
     let absoluteMatch = null;
     for (const ep of allEps) {
@@ -1293,6 +1348,22 @@ function findCrossSeasonEpisodeMap(searchData, title, year, season, episode, pla
     if (currentTargetEpisode <= allEps.length) {
       const targetEp = allEps[currentTargetEpisode - 1];
       if (platform && getPlatformMatchScore(extractEpisodeTitle(targetEp.episodeTitle), platform) === 0) {
+        currentSeason++;
+        continue;
+      }
+      log("info", `[system] [spillover] 跨季溢出查找命中 (按相对排位计算) -> 所在季：S${currentSeason} 集标题：${targetEp.episodeTitle}`);
+      bestRes = {
+        anime: seasonData.anime,
+        episode: targetEp,
+        score: platform ? getPlatformMatchScore(seasonData.actualPlatform, platform) : 1
+      };
+      break;
+    }
+
+    // 目标集号超出实际集数但仍落在该季 TMDB 标准区间内: 真实集数偏短时返回该季最后一集, 避免无谓顺延至后续季
+    if (currentTargetEpisode <= seasonEpisodeTotal) {
+      const targetEp = allEps[allEps.length - 1];
+      if (platform && getPlatformMatchScore(extractEpisodeTitle(targetEp.episodeTitle), platform) === 0) {
           currentSeason++;
           continue;
       }
@@ -1305,8 +1376,8 @@ function findCrossSeasonEpisodeMap(searchData, title, year, season, episode, pla
       break;
     }
 
-    log("info", `[system] [spillover] S${currentSeason} 共有 ${allEps.length} 集(已过滤番外)，剩余目标集数为 ${currentTargetEpisode}，映射至 S${currentSeason + 1} 继续查找`);
-    currentTargetEpisode -= allEps.length;
+    log("info", `[system] [spillover] S${currentSeason} 共有 ${seasonEpisodeTotal} 集(已过滤番外)，剩余目标集数为 ${currentTargetEpisode}，映射至 S${currentSeason + 1} 继续查找`);
+    currentTargetEpisode -= seasonEpisodeTotal;
     currentSeason++;
   }
 
