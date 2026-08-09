@@ -52,6 +52,13 @@ function linkSignal(externalSignal, internalController) {
   };
 }
 
+// iOS 巨魔环境（无 WebAssembly）与旧版 Node（自带 undici 解析响应头时会丢弃 Set-Cookie，导致依赖该响应头的令牌握手等请求失败）改用 node-fetch v3（由 esm-shim 在 Node < 20.19.0 时提供），其 Headers 正常暴露 Set-Cookie；与 esm-shim 的兼容性边界 20.19.0 保持一致，Node >= 20.19.0 仍用原生 fetch
+function shouldUseNodeFetch() {
+  if (typeof WebAssembly === 'undefined') return true;
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  return major < 20 || (major === 20 && minor < 19);
+}
+
 export async function httpGet(url, options = {}) {
   // 从 options 中获取重试次数，默认为 0
   const maxRetries = parseInt(options.retries || '0', 10) || 0;
@@ -86,10 +93,10 @@ export async function httpGet(url, options = {}) {
     const cleanupSignal = linkSignal(options.signal, controller);
 
     try {
-      // 兼容iOS巨魔环境：使用node-fetch替代内置fetch
+      // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
       let response;
-      if (typeof WebAssembly === 'undefined') {
-        log("info", "[system] [http] iOS环境降级使用node-fetch");
+      if (shouldUseNodeFetch()) {
+        log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
         const fetch = (await import('node-fetch')).default;
         response = await fetch(url, {
           method: 'GET',
@@ -306,10 +313,10 @@ export async function httpPost(url, body, options = {}) {
     }
 
     try {
-      // 兼容iOS巨魔环境：使用node-fetch替代内置fetch
+      // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
       let response;
-      if (typeof WebAssembly === 'undefined') {
-        log("info", "[system] [http] iOS环境降级使用node-fetch");
+      if (shouldUseNodeFetch()) {
+        log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
         const fetch = (await import('node-fetch')).default;
         response = await fetch(url, fetchOptions);
       } else {
@@ -430,7 +437,15 @@ async function httpRequestMethod(method, url, body, options = {}) {
   }
 
   try {
-    const response = await fetch(url, fetchOptions);
+    // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
+    let response;
+    if (shouldUseNodeFetch()) {
+      log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
+      const fetch = (await import('node-fetch')).default;
+      response = await fetch(url, fetchOptions);
+    } else {
+      response = await fetch(url, fetchOptions);
+    }
     const textData = await response.text();
 
     if (!response.ok && !validStatusCodes.includes(response.status)) {
@@ -690,11 +705,23 @@ export async function httpGetWithStreamCheck(url, options = {}, checkCallback) {
     const currentSource = sourceLogContext.getStore() || "system";
     log("info", `[${currentSource}] [流式请求] HTTP GET: ${url}`);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: headers,
-      signal: controller.signal
-    });
+    // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
+    let response;
+    if (shouldUseNodeFetch()) {
+      log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
+      const fetch = (await import('node-fetch')).default;
+      response = await fetch(url, {
+        method: 'GET',
+        headers: headers,
+        signal: controller.signal
+      });
+    } else {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: headers,
+        signal: controller.signal
+      });
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
