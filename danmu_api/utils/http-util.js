@@ -54,7 +54,7 @@ function linkSignal(externalSignal, internalController) {
   };
 }
 
-// 旧版 Node（自带 undici 解析响应头时会丢弃 Set-Cookie，导致依赖该响应头的令牌握手等请求失败）与 iOS 巨魔环境（无 WebAssembly、无原生 fetch）改用 node-fetch v3（由 esm-shim 在 Node < 20.19.0 时提供，其 Headers 正常暴露 Set-Cookie）；与 esm-shim 的兼容性边界 20.19.0 保持一致，Node >= 20.19.0 仍用原生 fetch。该判定仅依赖静态环境、进程内恒定，故模块加载时计算一次并缓存，避免每次请求重复判定与重复日志
+// 旧版 Node（<20.19.0，自带 undici 解析响应头时丢弃 Set-Cookie）与 iOS 巨魔（无 WebAssembly、无原生 fetch）改用 node-fetch v3（其 Headers 正常暴露 Set-Cookie）；降级边界与 esm-shim 的 20.19.0 一致，Node >= 20.19.0 仍用原生 fetch。判定仅依赖静态环境、进程内恒定，故模块加载时算一次并缓存。
 function detectNodeFetchDowngrade() {
   if (typeof WebAssembly === 'undefined') return true;
   const [major, minor] = process.versions.node.split('.').map(Number);
