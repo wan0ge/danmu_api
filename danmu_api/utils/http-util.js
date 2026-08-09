@@ -1,6 +1,8 @@
 import { globals } from '../configs/globals.js';
 import { log } from './log-util.js'
 import { AsyncLocalStorage } from 'node:async_hooks';
+import https from 'node:https';
+import http from 'node:http';
 
 // 跨异步生命周期链路的日志上下文追踪器
 export const sourceLogContext = new AsyncLocalStorage();
@@ -52,11 +54,29 @@ function linkSignal(externalSignal, internalController) {
   };
 }
 
-// iOS 巨魔环境（无 WebAssembly）与旧版 Node（自带 undici 解析响应头时会丢弃 Set-Cookie，导致依赖该响应头的令牌握手等请求失败）改用 node-fetch v3（由 esm-shim 在 Node < 20.19.0 时提供），其 Headers 正常暴露 Set-Cookie；与 esm-shim 的兼容性边界 20.19.0 保持一致，Node >= 20.19.0 仍用原生 fetch
-function shouldUseNodeFetch() {
+// 旧版 Node（自带 undici 解析响应头时会丢弃 Set-Cookie，导致依赖该响应头的令牌握手等请求失败）与 iOS 巨魔环境（无 WebAssembly、无原生 fetch）改用 node-fetch v3（由 esm-shim 在 Node < 20.19.0 时提供，其 Headers 正常暴露 Set-Cookie）；与 esm-shim 的兼容性边界 20.19.0 保持一致，Node >= 20.19.0 仍用原生 fetch。该判定仅依赖静态环境、进程内恒定，故模块加载时计算一次并缓存，避免每次请求重复判定与重复日志
+function detectNodeFetchDowngrade() {
   if (typeof WebAssembly === 'undefined') return true;
   const [major, minor] = process.versions.node.split('.').map(Number);
   return major < 20 || (major === 20 && minor < 19);
+}
+
+const USE_NODE_FETCH = detectNodeFetchDowngrade();
+if (USE_NODE_FETCH) {
+  // 模块载入时 logLevel 尚未初始化，用 console.log 保证启动提示必现
+  console.log("[system] [http] 检测到旧版Node/iOS环境，已全局切换至 node-fetch v3 作为请求实现");
+}
+
+// 降级分支共享 keep-alive Agent，复用 TCP/TLS 连接以与原生 undici 连接池达到实际等价（消除重复握手开销）；按协议区分 https/http
+const nodeFetchHttpsAgent = USE_NODE_FETCH ? new https.Agent({ keepAlive: true, keepAliveMsecs: 1000, maxSockets: 256 }) : null;
+const nodeFetchHttpAgent = USE_NODE_FETCH ? new http.Agent({ keepAlive: true, keepAliveMsecs: 1000, maxSockets: 256 }) : null;
+function nodeFetchAgent(parsedUrl) {
+  const protocol = parsedUrl instanceof URL ? parsedUrl.protocol : new URL(parsedUrl).protocol;
+  return protocol === 'https:' ? nodeFetchHttpsAgent : nodeFetchHttpAgent;
+}
+
+function shouldUseNodeFetch() {
+  return USE_NODE_FETCH;
 }
 
 export async function httpGet(url, options = {}) {
@@ -96,14 +116,14 @@ export async function httpGet(url, options = {}) {
       // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
       let response;
       if (shouldUseNodeFetch()) {
-        log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
         const fetch = (await import('node-fetch')).default;
         response = await fetch(url, {
           method: 'GET',
           headers: {
             ...options.headers,
           },
-          signal: controller.signal
+          signal: controller.signal,
+          agent: nodeFetchAgent
         });
       } else {
         // 现代浏览器环境
@@ -316,9 +336,8 @@ export async function httpPost(url, body, options = {}) {
       // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
       let response;
       if (shouldUseNodeFetch()) {
-        log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
         const fetch = (await import('node-fetch')).default;
-        response = await fetch(url, fetchOptions);
+        response = await fetch(url, { ...fetchOptions, agent: nodeFetchAgent });
       } else {
         // 现代浏览器环境
         response = await fetch(url, fetchOptions);
@@ -440,9 +459,8 @@ async function httpRequestMethod(method, url, body, options = {}) {
     // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
     let response;
     if (shouldUseNodeFetch()) {
-      log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
       const fetch = (await import('node-fetch')).default;
-      response = await fetch(url, fetchOptions);
+      response = await fetch(url, { ...fetchOptions, agent: nodeFetchAgent });
     } else {
       response = await fetch(url, fetchOptions);
     }
@@ -708,12 +726,12 @@ export async function httpGetWithStreamCheck(url, options = {}, checkCallback) {
     // 兼容iOS巨魔或旧版Node：使用node-fetch替代内置fetch
     let response;
     if (shouldUseNodeFetch()) {
-      log("info", "[system] [http] 降级使用node-fetch（iOS巨魔或旧版Node）");
       const fetch = (await import('node-fetch')).default;
       response = await fetch(url, {
         method: 'GET',
         headers: headers,
-        signal: controller.signal
+        signal: controller.signal,
+        agent: nodeFetchAgent
       });
     } else {
       response = await fetch(url, {
