@@ -84,16 +84,16 @@ export const HTML_TEMPLATE = /* html */ `
             <div class="section active" id="preview-section">
                 <h2>配置预览</h2>
                 
-                <div id="proxy-config-container" style="display: none; background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-                    <h3 style="color: #856404; margin-top: 0; font-size: 16px;">⚠️ 获取配置失败</h3>
-                    <p style="color: #856404; margin-bottom: 10px; font-size: 14px;">
+                <div id="proxy-config-container" class="error-config-banner" style="display: none;">
+                    <h3 class="error-config-title">⚠️ 获取配置失败</h3>
+                    <p class="error-config-text">
                         检测到无法获取配置。如果您使用了复杂的反向代理：例如将 <code>http://{ip}:9321/</code> 代理到了 <code>http://{ip}:9321/danmu_api/</code>，请在此处手动输入完整的反代后链接（不包含TOKEN和ADMIN_TOKEN的）
                     </p>
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <input type="text" id="custom-base-url" placeholder="例如: http://192.168.8.1:2333/danmu_api/ (留空保存即恢复默认)" style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #ced4da; border-radius: 4px;">
+                        <input type="text" id="custom-base-url" placeholder="例如: http://192.168.8.1:2333/danmu_api/ (留空保存即恢复默认)" style="flex: 1; min-width: 200px;">
                         <button class="btn btn-primary" onclick="saveBaseUrl()">保存并刷新</button>
                     </div>
-                    <p style="color: #666; font-size: 12px; margin-top: 5px;">* 设置将保存在浏览器本地存储中，清除网页的‘本地存储空间’或者输入框中留空并保存可恢复默认</p>
+                    <p style="color: var(--theme-muted); font-size: 12px; margin-top: 5px;">* 设置将保存在浏览器本地存储中，清除网页的"本地存储空间"或者输入框中留空并保存可恢复默认</p>
                 </div>
 
                 <p class="preview-description">当前生效的环境变量配置</p>
@@ -194,10 +194,10 @@ export const HTML_TEMPLATE = /* html */ `
                         <p style="color: #666; margin-bottom: 15px;">模拟播放器手动搜索流程：搜索动漫 → 选择番剧 → 选择剧集 → 获取弹幕</p>
                         <div class="form-group" style="margin-bottom: 15px;">
                             <label>搜索关键字</label>
-                            <div style="display:flex;gap:10px;margin-top:5px;">
+                            <div class="search-actions">
                                 <input type="text" id="manual-search-keyword" placeholder="请输入动漫名称" style="flex:1;">
-                                <button class="btn btn-primary" id="manual-search-btn" onclick="manualSearchAnime()">搜索</button>
                                 <button class="btn btn-success favorite-action-btn" id="manual-favorite-btn" onclick="favoriteManualSearch()" disabled>收藏</button>
+                                <button class="btn btn-primary" id="manual-search-btn" onclick="manualSearchAnime()">搜索</button>
                             </div>
                         </div>
                         <div id="manual-anime-list" style="display:none;"></div>

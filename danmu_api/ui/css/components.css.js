@@ -969,6 +969,44 @@ body.modal-open {
     font-size: 13px;
 }
 
+.error-config-banner {
+    background: var(--theme-panel-strong);
+    border: 1px solid var(--theme-border);
+    padding: 15px;
+    border-radius: var(--app-radius-card-sm);
+    margin-bottom: 20px;
+}
+
+.error-config-title {
+    color: var(--theme-accent);
+    margin-top: 0;
+    font-size: 16px;
+}
+
+.error-config-text {
+    color: var(--theme-muted);
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.error-config-banner input {
+    padding: 8px 10px;
+    border: 1px solid var(--theme-border);
+    border-radius: 8px;
+    background: var(--theme-input-bg);
+    color: var(--theme-text);
+}
+
+.error-config-banner code {
+    background: var(--theme-panel-bg);
+    border: 1px solid var(--theme-border);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+    font-size: 0.85em;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    word-break: break-all;
+}
+
 .close-btn {
     background: var(--theme-panel-strong);
     border: none;
@@ -1953,6 +1991,32 @@ body.modal-open {
     border-radius: 999px;
     flex-shrink: 0;
     font-weight: 600;
+}
+
+.episode-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    gap: 16px;
+    transition: background 0.15s;
+}
+
+.episode-item:hover {
+    background: var(--theme-panel-bg);
+    box-shadow: inset 3px 0 0 var(--theme-accent);
+}
+
+.episode-item-content {
+    min-width: 0;
+    font-size: 14px;
+    color: var(--theme-text);
+}
+
+.episode-item .btn {
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .danmu-mode-scroll { background: rgba(94, 196, 219, 0.15); color: #3aafc8; }

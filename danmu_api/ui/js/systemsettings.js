@@ -3257,7 +3257,6 @@ function applyInputFeedback(inputEl) {
     const oldBorder = inputEl.style.borderColor;
     inputEl.style.borderColor = '#28a745';
     setTimeout(() => inputEl.style.borderColor = oldBorder, 800);
-    inputEl.focus();
 }
 
 // 表单填充逻辑：合并映射表
