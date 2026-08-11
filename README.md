@@ -790,7 +790,7 @@ API 支持返回 Bilibili 标准 XML 格式的弹幕数据，通过查询参数 
 ### 特别感谢
 - 开源项目 [danmaku-anywhere](https://github.com/Mr-Quin/danmaku-anywhere) 提供的[弹弹play开放平台](https://doc.dandanplay.com/open/)接口
 
-- 开源项目 [NipaPlay-Reload](https://github.com/AimesSoft/NipaPlay-Reload) 提供的 NipaPlay-Reload 弹弹302关联链接授权
+- 开源项目 [NipaPlay-Reload](https://github.com/AimesSoft/NipaPlay-Reload) 提供的弹弹302关联链接请求授权
 
 - 开源项目 [animeko](https://github.com/open-ani/animeko) 提供的弹幕API
 
