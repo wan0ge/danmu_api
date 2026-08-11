@@ -637,7 +637,7 @@ export class Envs {
       'BILIBILI_COOKIE': { category: 'source', type: 'text', description: 'B站Cookie' },
       'DOUBAN_COOKIE': { category: 'source', type: 'text', description: '豆瓣Cookie' },
       'YOUKU_CONCURRENCY': { category: 'source', type: 'number', description: '优酷并发配置，默认8', min: 1, max: 16 },
-      'NIPAPLAY_REPLACE_DANDAN': { category: 'source', type: 'boolean', description: 'NipaPlay 弹弹302关联弹幕替代开关（用于 dandan 源），默认为`false`（关闭，使用弹弹原生弹幕），可选值：`true`、`false`。开启后 dandan 源以 nipaplay 弹弹302关联弹幕替代弹弹原生弹幕，因使用的是项目链路获取弹幕所以`1.会丢失弹弹平台弹幕` `2.无法获取下架视频` `3.如果关联中有巴哈姆特平台需要确保能够连通巴哈`' },
+      'NIPAPLAY_REPLACE_DANDAN': { category: 'source', type: 'boolean', description: 'NipaPlay 弹弹302关联弹幕替代开关（用于 dandan 源）。\n默认为 false（关闭，使用弹弹原生弹幕），可选值：true、false。\n开启后 dandan 源以 nipaplay 弹弹302关联弹幕替代弹弹原生弹幕，因使用的是项目链路获取弹幕所以：\n1.会丢失弹弹平台弹幕\n2.无法获取下架视频\n3.如果关联中有巴哈姆特平台需要确保能够连通巴哈' },
       
       // 匹配配置
       'PLATFORM_ORDER': { category: 'match', type: 'multi-select', options: this.ALLOWED_PLATFORMS, description: '平台排序配置，可以配置自动匹配时的优选平台。\n当配置合并平台的时候，可以指定期望的合并源，\n示例：一个结果返回了"dandan&bilibili1&animeko"和"youku"时，\n当配置"youku"时返回"youku" \n当配置"dandan&animeko"时返回"dandan&bilibili1&animeko"' },
