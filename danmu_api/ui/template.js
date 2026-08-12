@@ -318,22 +318,29 @@ export const HTML_TEMPLATE = /* html */ `
                 <div class="modal" id="clear-cache-modal">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h3>确认清理缓存</h3>
+                            <h3>选择要清理的缓存</h3>
                             <button class="close-btn" onclick="hideClearCacheModal()">&times;</button>
                         </div>
                         <div class="modal-body">
-                            <p style="margin-bottom: 20px;">确定要清理所有缓存吗？这将清除：</p>
-                            <ul class="confirmation-list">
-                                <li>动漫搜索缓存 (animes)</li>
-                                <li>剧集ID缓存 (episodeIds)</li>
-                                <li>剧集编号缓存 (episodeNum)</li>
-                                <li>最后选择映射缓存 (lastSelectMap)</li>
-                                <li>动画元数据缓存 (Bangumi Data)</li>
-                                <li>搜索结果缓存</li>
-                                <li>弹幕内容缓存</li>
-                                <li>请求历史记录</li>
-                            </ul>
-                            <p style="color: #666; margin-top: 20px;">清理后可能需要重新登录</p>
+                            <p class="cache-clear-hint">勾选需要清理的缓存项，未勾选的项将保留。</p>
+                            <div class="cache-clear-toolbar">
+                                <span class="cache-clear-count" id="cache-clear-count"></span>
+                                <div class="cache-clear-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="selectAllCacheItems(true)">全选</button>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="selectAllCacheItems(false)">全不选</button>
+                                </div>
+                            </div>
+                            <div class="cache-clear-options">
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="animes" checked onchange="updateCacheClearCount()"> 动漫搜索缓存 (animes)</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="episodeIds" checked onchange="updateCacheClearCount()"> 剧集ID缓存 (episodeIds)</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="episodeNum" checked onchange="updateCacheClearCount()"> 剧集编号缓存 (episodeNum)</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="lastSelectMap" checked onchange="updateCacheClearCount()"> 最后选择映射缓存 (lastSelectMap)</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="bangumiData" checked onchange="updateCacheClearCount()"> 动画元数据缓存 (Bangumi Data)</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="searchCache" checked onchange="updateCacheClearCount()"> 搜索结果缓存</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="commentCache" checked onchange="updateCacheClearCount()"> 弹幕内容缓存</label>
+                                <label class="cache-clear-item"><input type="checkbox" class="app-checkbox" name="cacheItem" value="requestHistory" checked onchange="updateCacheClearCount()"> 请求历史记录</label>
+                            </div>
+                            <p class="cache-clear-note">清理后可能需要重新登录</p>
                         </div>
                         <div class="modal-footer">
                             <button class="btn btn-success" onclick="confirmClearCache()">确认清理</button>

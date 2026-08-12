@@ -309,7 +309,26 @@ async function importSystemConfigFile(file) {
 
 // 显示清理缓存确认模态框
 function showClearCacheModal() {
+    selectAllCacheItems(true); // 每次打开恢复默认全选
     document.getElementById('clear-cache-modal').classList.add('active');
+}
+
+// 批量勾选或取消勾选所有缓存项，并同步已选数量
+function selectAllCacheItems(checked) {
+    document.querySelectorAll('#clear-cache-modal input[name="cacheItem"]').forEach(cb => {
+        cb.checked = checked;
+    });
+    updateCacheClearCount();
+}
+
+// 刷新清理缓存弹窗中已勾选项的数量统计
+function updateCacheClearCount() {
+    const all = document.querySelectorAll('#clear-cache-modal input[name="cacheItem"]');
+    const checked = document.querySelectorAll('#clear-cache-modal input[name="cacheItem"]:checked');
+    const countEl = document.getElementById('cache-clear-count');
+    if (countEl) {
+        countEl.textContent = '已选 ' + checked.length + ' / ' + all.length;
+    }
 }
 
 // 隐藏清理缓存确认模态框
@@ -319,6 +338,14 @@ function hideClearCacheModal() {
 
 // 确认清理缓存
 async function confirmClearCache() {
+    // 收集勾选的缓存项
+    const checkboxes = document.querySelectorAll('#clear-cache-modal input[name="cacheItem"]:checked');
+    const items = Array.from(checkboxes).map(cb => cb.value);
+    if (items.length === 0) {
+        customAlert('请至少选择一项要清理的缓存');
+        return;
+    }
+
     // 检查部署平台配置
     const configCheck = await checkDeployPlatformConfig();
     if (!configCheck.success) {
@@ -332,12 +359,13 @@ async function confirmClearCache() {
     addLog('开始清理缓存', 'info');
 
     try {
-        // 调用真实的清理缓存API
+        // 调用真实的清理缓存API，附带勾选的待清理项
         const response = await fetch(buildApiUrl('/api/cache/clear', true), { // 使用admin token
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ items })
         });
 
         const result = await response.json();
@@ -975,7 +1003,7 @@ function renderValueInput(item) {
                     <div style="margin-bottom: 10px; display: flex; align-items: center; width: 100%;">
                         <label class="offset-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; white-space: nowrap;">
                             启用百分比模式（按视频时长缩放全部弹幕时间）
-                            <input type="checkbox" id="offset-use-percent" style="width: 16px; height: 16px; margin: 0; flex-shrink: 0;">
+                            <input type="checkbox" id="offset-use-percent" class="app-checkbox">
                         </label>
                     </div>
                     \${offsetSources.length > 0 ? \`
