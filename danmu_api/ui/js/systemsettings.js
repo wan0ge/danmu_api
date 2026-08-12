@@ -1001,7 +1001,7 @@ function renderValueInput(item) {
                         </div>
                     </div>
                     <div style="margin-bottom: 10px; display: flex; align-items: center; width: 100%;">
-                        <label class="offset-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; white-space: nowrap;">
+                        <label class="offset-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;">
                             启用百分比模式（按视频时长缩放全部弹幕时间）
                             <input type="checkbox" id="offset-use-percent" class="app-checkbox">
                         </label>

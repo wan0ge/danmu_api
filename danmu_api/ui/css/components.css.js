@@ -970,14 +970,43 @@ body.modal-open {
     font-size: 13px;
 }
 
-/* 通用复选框样式，所有普通复选框共享主题色 */
-.app-checkbox {
+/* 通用复选框：appearance 自绘控制勾选色；body[data-theme] 前缀将特异性提至 3002，压过 .form-group input 的背景/边框(2002)与尺寸/内边距(1001) */
+body[data-theme] input[type="checkbox"].app-checkbox {
     width: 16px;
     height: 16px;
     margin: 0;
+    padding: 0;
     flex-shrink: 0;
-    accent-color: var(--theme-accent);
+    vertical-align: middle;
     cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    background: var(--theme-panel-bg);
+    border: 1px solid var(--theme-muted);
+    border-radius: 3px;
+}
+
+body[data-theme] input[type="checkbox"].app-checkbox:checked {
+    background: var(--theme-accent);
+    border-color: var(--theme-accent);
+}
+
+body[data-theme] input[type="checkbox"].app-checkbox:checked::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 4px;
+    height: 9px;
+    border: solid var(--theme-check-color);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
+    outline: 2px solid var(--theme-accent-soft);
+    outline-offset: 1px;
 }
 
 .cache-clear-hint {
