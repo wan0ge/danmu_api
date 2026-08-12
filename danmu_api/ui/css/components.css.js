@@ -2051,12 +2051,17 @@ body.modal-open {
     border: 1px solid var(--theme-border);
 }
 
+
+
 .jump-episode-input {
     padding: 7px 12px;
     width: 110px;
+    max-width: 100%;
+    min-width: 0;
     border: 1px solid var(--theme-border);
     border-radius: var(--app-radius-input);
     font-size: 13px;
+    text-align: center;
     background: var(--theme-input-bg);
     color: var(--theme-text);
 }
