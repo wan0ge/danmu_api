@@ -2051,7 +2051,9 @@ body.modal-open {
     border: 1px solid var(--theme-border);
 }
 
-
+.jump-to-episode > span {
+    font-size: 13px;
+}
 
 .jump-episode-input {
     padding: 7px 12px;
