@@ -1011,8 +1011,8 @@ body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
 
 .cache-clear-hint {
     margin: 0 0 12px;
-    font-size: 13px;
-    color: var(--theme-muted);
+    font-size: 16px;
+    color: var(--theme-text);
 }
 
 .cache-clear-toolbar {
@@ -1026,6 +1026,9 @@ body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
     font-size: 12px;
     font-weight: 500;
     color: var(--theme-muted);
+    background: color-mix(in srgb, var(--theme-muted) 10%, transparent); /* 状态标签底色，非按钮 */
+    padding: 5px 10px;
+    border-radius: 999px;
 }
 
 .cache-clear-actions {

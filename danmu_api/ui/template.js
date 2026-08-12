@@ -322,7 +322,7 @@ export const HTML_TEMPLATE = /* html */ `
                             <button class="close-btn" onclick="hideClearCacheModal()">&times;</button>
                         </div>
                         <div class="modal-body">
-                            <p class="cache-clear-hint">勾选需要清理的缓存项，未勾选的项将保留。</p>
+                            <p class="cache-clear-hint">请勾选需要清理的缓存项：</p>
                             <div class="cache-clear-toolbar">
                                 <span class="cache-clear-count" id="cache-clear-count"></span>
                                 <div class="cache-clear-actions">

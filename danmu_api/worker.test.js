@@ -1112,6 +1112,16 @@ test('worker.js API endpoints', async (t) => {
       assert.equal(Globals.animes.length, 1);
       assert.equal(Globals.searchCache.size, 1);
     });
+
+    await t.test('prototype keys like __proto__ are rejected and do not break the clear', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['animes', '__proto__', 'constructor', 'animes'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(Globals.animes.length, 0);
+      assert.equal(Globals.searchCache.size, 1);
+      assert.equal(Globals.commentCache.size, 1);
+    });
   });
 
   });

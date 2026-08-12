@@ -212,7 +212,8 @@ export async function handleClearCache(req) {
       parsed = null;
     }
     const items = parsed && Array.isArray(parsed.items) ? parsed.items : null;
-    effectiveItems = items ? items.filter(key => key in clearActions) : allItems;
+    // 仅保留自身属性键，排除 __proto__ 等原型链键，避免误放行导致整次清理失败
+    effectiveItems = items ? items.filter(key => Object.prototype.hasOwnProperty.call(clearActions, key)) : allItems;
   } else {
     effectiveItems = allItems;
   }
