@@ -193,6 +193,23 @@ async function selectBestDataSource() {
     return versionQueryPromise;
 }
 
+// 数据下载触发时机：仅在 searchBangumiData 消费路径进入时触发下载；开关关闭或无所消费源时不下载
+// 开启时复用 initBangumiData 加载/下载，并发调用等待同一就绪缓存而不重复请求
+export async function ensureBangumiDataReady(deployPlatform = globals.deployPlatform) {
+    if (!globals.useBangumiData) return;
+    await initBangumiData(deployPlatform, true);
+}
+
+// 配置变更后同步 Bangumi Data 生命周期：开关开启立即下载（已缓存则幂等），关闭释放缓存
+// 调用前须保证 globals.useBangumiData 已反映最新配置（watcher 场景须先同步内存开关）
+export function syncBangumiDataLifecycleOnConfigChange(deployPlatform = globals.deployPlatform) {
+    if (globals.useBangumiData) {
+        initBangumiData(deployPlatform, true).catch(console.error);
+    } else {
+        clearBangumiDataCache(true);
+    }
+}
+
 /**
  * 初始化 Bangumi Data 数据源
  * 包含内存与磁盘双端缓存的生命周期校验，并在环境允许时持久化缓存数据
@@ -201,7 +218,7 @@ async function selectBestDataSource() {
  * @param {boolean} isDataDependentRequest - 当前是否为强依赖数据的核心接口请求
  * @returns {Promise<void>}
  */
-export async function initBangumiData(deployPlatform, isDataDependentRequest = false, ctx = null) {
+export async function initBangumiData(deployPlatform, isDataDependentRequest = false) {
     if (!globals.useBangumiData) return;
 
     let cachePath = null;
@@ -298,10 +315,6 @@ export async function initBangumiData(deployPlatform, isDataDependentRequest = f
             await downloadPromise; 
         } else {
             log("info", `[system] [Bangumi-Data] 当前非核心请求，数据获取转入后台异步执行`);
-            if (ctx && typeof ctx.waitUntil === 'function') {
-                log("info", `[system] [Bangumi-Data] 调用 ctx.waitUntil 延长 Serverless 生命周期`);
-                ctx.waitUntil(downloadPromise);
-            }
         }
     } else if (isDataDependentRequest) {
         log("info", `[system] [Bangumi-Data] 正在等待基础数据下载完成...`);
@@ -503,6 +516,7 @@ async function downloadAndCache(cachePath) {
  * @returns {Array<Object>} 匹配的动漫条目数组
  */
 export async function searchBangumiData(keyword, siteKeys) {
+    await ensureBangumiDataReady();
     if (!memoryCache || !memoryCache.items) return [];
 
     let searchPromise = queryCache.get(keyword);

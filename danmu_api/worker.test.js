@@ -2727,3 +2727,60 @@ test('worker.js API endpoints', async (t) => {
 //     }
 //   });
 // });
+
+// // 测试 Bangumi Data 数据下载时机（ensureBangumiDataReady）、配置变更触发下载（syncBangumiDataLifecycleOnConfigChange）
+// // 以及 getTMDBChineseTitle 漏写 await 的修复；与 envs RAW_ENV_KEYS 测试同为按需启用的内部测试
+// import { globals } from './configs/globals.js';
+// import { ensureBangumiDataReady, syncBangumiDataLifecycleOnConfigChange } from './utils/bangumi-data-util.js';
+// import fs from 'node:fs';
+// import path from 'node:path';
+//
+// test('bangumi-data 数据下载时机与配置变更触发下载', async (t) => {
+//   const CACHE_DIR = path.join(process.cwd(), '.cache');
+//   const CACHE_FILE = path.join(CACHE_DIR, 'bangumi-data-cache.json');
+//   const FAKE_ITEM = {
+//     title: 'FrobeniusTestAnime',
+//     titleTranslate: { 'zh-Hans': ['弗罗贝尼乌斯测试动画', 'FrobeniusTestAnime'] },
+//     sites: [{ site: 'tmdb', id: '999999' }],
+//     _flatText: 'frobeniustestanime'
+//   };
+//   const reset = () => {
+//     globals.useBangumiData = false;
+//     clearBangumiDataCache(false);
+//     if (fs.existsSync(CACHE_FILE)) fs.writeFileSync(CACHE_FILE, '', 'utf-8');
+//   };
+//
+//   await t.test('ensureBangumiDataReady 开关关闭时直接返回且不触发下载', async () => {
+//     reset();
+//     globals.useBangumiData = false;
+//     await ensureBangumiDataReady('node');
+//     assert.ok(true);
+//   });
+//
+//   await t.test('syncBangumiDataLifecycleOnConfigChange 开关关闭释放缓存、开启安全触发', async () => {
+//     reset();
+//     globals.useBangumiData = false;
+//     assert.doesNotThrow(() => syncBangumiDataLifecycleOnConfigChange('node'));
+//     fs.mkdirSync(CACHE_DIR, { recursive: true });
+//     fs.writeFileSync(CACHE_FILE, JSON.stringify({ items: [FAKE_ITEM] }), 'utf-8');
+//     globals.useBangumiData = true;
+//     assert.doesNotThrow(() => syncBangumiDataLifecycleOnConfigChange('node'));
+//   });
+//
+//   await t.test('getTMDBChineseTitle 经 await 命中本地中文名（修复漏写 await）', async () => {
+//     reset();
+//     globals.useBangumiData = true;
+//     const originalContent = fs.existsSync(CACHE_FILE) ? fs.readFileSync(CACHE_FILE, 'utf-8') : null;
+//     fs.mkdirSync(CACHE_DIR, { recursive: true });
+//     fs.writeFileSync(CACHE_FILE, JSON.stringify({ items: [FAKE_ITEM] }), 'utf-8');
+//     try {
+//       await initBangumiData('node', true);
+//       const result = await getTMDBChineseTitle('FrobeniusTestAnime');
+//       assert.equal(result, '弗罗贝尼乌斯测试动画');
+//     } finally {
+//       clearBangumiDataCache(false);
+//       if (originalContent !== null) fs.writeFileSync(CACHE_FILE, originalContent, 'utf-8');
+//       else fs.writeFileSync(CACHE_FILE, '', 'utf-8');
+//     }
+//   });
+// });

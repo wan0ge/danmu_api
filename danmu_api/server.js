@@ -9,8 +9,8 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import dotenv from 'dotenv';
 import { Request as NodeFetchRequest } from 'node-fetch';
 import { handleRequest } from './worker.js';
-import { Globals } from './configs/globals.js';
-import { clearBangumiDataCache, initBangumiData } from './utils/bangumi-data-util.js';
+import { Globals, globals } from './configs/globals.js';
+import { clearBangumiDataCache, initBangumiData, syncBangumiDataLifecycleOnConfigChange } from './utils/bangumi-data-util.js';
 import { getLocalCaches, judgeLocalCacheValid } from './utils/cache-util.js';
 import { getRedisCaches, judgeRedisValid } from './utils/redis-util.js';
 import { persistFavorites, refreshFavoriteByKeyword } from './apis/favorite-api.js';
@@ -220,10 +220,11 @@ async function setupEnvWatcher() {
           console.log('[server] Environment variables reloaded successfully');
           console.log('[server] Updated keys:', Array.from(newEnvKeys).join(', '));
 
-          // 如果检测到关闭了 Bangumi Data 功能，主动释放内存与物理磁盘缓存
-          if (process.env.USE_BANGUMI_DATA === 'false' || process.env.USE_BANGUMI_DATA === false) {
-              clearBangumiDataCache(true);
-          }
+          // 配置变更后同步 Bangumi Data 生命周期：开启则立即确保缓存就绪（缺失则下载），
+          // 关闭则释放缓存；先按真实配置同步内存开关，避免重载未刷新 globals 时状态滞后
+          const bangumiEnabled = process.env.USE_BANGUMI_DATA === 'true' || process.env.USE_BANGUMI_DATA === true;
+          globals.useBangumiData = bangumiEnabled;
+          syncBangumiDataLifecycleOnConfigChange('node');
 
         } catch (error) {
           console.log('[server] Error reloading configuration files:', error.message);

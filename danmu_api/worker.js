@@ -5,7 +5,6 @@ import { getFavoriteCachesFromRedis, getRedisCaches, judgeRedisValid } from "./u
 import { cleanupExpiredIPs, findUrlById, getCommentCache, getLocalCaches, judgeLocalCacheValid } from "./utils/cache-util.js";
 import { formatDanmuResponse } from "./utils/danmu-util.js";
 import AIClient from './utils/ai-util.js';
-import { initBangumiData } from "./utils/bangumi-data-util.js";
 import { getBangumi, getComment, getCommentByUrl, getSegmentComment, matchAnime, searchAnime, searchEpisodes } from "./apis/dandan-api.js";
 import { handleFavoriteAdd, handleFavoriteList, handleFavoriteRefresh, handleFavoriteRemove, handleFavoriteSchedule } from "./apis/favorite-api.js";
 import { getFongmiDanmaku } from "./apis/clients/fongmi-api.js";
@@ -23,20 +22,13 @@ import {
 
 let globals;
 
-async function handleRequest(req, env, deployPlatform, clientIp, ctx) {
+async function handleRequest(req, env, deployPlatform, clientIp) {
   // 加载全局变量和环境变量配置
   globals = Globals.init(env);
 
   const url = new URL(req.url);
   let path = url.pathname;
   const method = req.method;
-
-  //  Bangumi Data 辅助函数，用于判断数据更新
-  const isDataDependentRequest = path.includes('/search') || path.includes('/match') || path.includes('/danmaku');
-
-  if (globals.useBangumiData) {
-      await initBangumiData(deployPlatform, isDataDependentRequest, ctx);
-  }
 
   globals.deployPlatform = deployPlatform;
   if (deployPlatform === "node") {
@@ -750,11 +742,11 @@ function detectDeployPlatform(env) {
 
 // --- Cloudflare Workers 入口 ---
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     // 获取客户端的真实 IP
     const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
 
-    return handleRequest(request, env, detectDeployPlatform(env), clientIp, ctx);
+    return handleRequest(request, env, detectDeployPlatform(env), clientIp);
   },
 };
 
