@@ -2731,7 +2731,7 @@ test('worker.js API endpoints', async (t) => {
 // // 测试 Bangumi Data 数据下载时机（ensureBangumiDataReady）、配置变更触发下载（syncBangumiDataLifecycleOnConfigChange）
 // // 以及 getTMDBChineseTitle 漏写 await 的修复；与 envs RAW_ENV_KEYS 测试同为按需启用的内部测试
 // import { globals } from './configs/globals.js';
-// import { ensureBangumiDataReady, syncBangumiDataLifecycleOnConfigChange } from './utils/bangumi-data-util.js';
+// import { ensureBangumiDataReady, syncBangumiDataLifecycleOnConfigChange, initBangumiData, clearBangumiDataCache } from './utils/bangumi-data-util.js';
 // import fs from 'node:fs';
 // import path from 'node:path';
 //
