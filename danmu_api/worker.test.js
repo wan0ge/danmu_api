@@ -2727,3 +2727,36 @@ test('worker.js API endpoints', async (t) => {
 //     }
 //   });
 // });
+
+// // 测试自定义文本类变量绕过 dotenv 注释截断（保留 # 等字符），对应 envs.js RAW_ENV_KEYS 修复
+// import { Envs } from './configs/envs.js';
+//
+// test('envs RAW_ENV_KEYS 保留 # 不被 dotenv 截断', async (t) => {
+//   const reset = () => { Envs.systemEnvBackup = null; Envs.rawEnvValues = null; Envs.env = undefined; };
+//
+//   await t.test('parseRawEnvText 保留行内 # 与剥除外层双引号', () => {
+//     const parsed = Envs.parseRawEnvText('K1=v1\nK2=v with # hash\nK3="q # v"');
+//     assert.strictEqual(parsed.K2, 'v with # hash');
+//     assert.strictEqual(parsed.K3, 'q # v');
+//   });
+//
+//   await t.test('CUSTOM_MERGE_RULES / COLOR_POOL / URL 类变量含 # 完整保留', () => {
+//     reset();
+//     Envs.systemEnvBackup = {};
+//     Envs.rawEnvValues = {
+//       CUSTOM_MERGE_RULES: 'A #1 revival@bili',
+//       COLOR_POOL: '#FF0000,#00FF00',
+//       DANMU_PUSH_URL: 'http://h.com/cb#frag',
+//     };
+//     assert.strictEqual(Envs.get('CUSTOM_MERGE_RULES', '', 'string'), 'A #1 revival@bili');
+//     assert.strictEqual(Envs.get('COLOR_POOL', '', 'string'), '#FF0000,#00FF00');
+//     assert.strictEqual(Envs.get('DANMU_PUSH_URL', '', 'string'), 'http://h.com/cb#frag');
+//   });
+//
+//   await t.test('!encrypt 守卫：加密变量不走原始解析，防止绕过加密', () => {
+//     reset();
+//     Envs.systemEnvBackup = {};
+//     Envs.rawEnvValues = { DANMU_PUSH_URL: 'http://x.com/cb#frag' };
+//     assert.strictEqual(Envs.get('DANMU_PUSH_URL', 'DEF', 'string', true), 'DEF');
+//   });
+// });

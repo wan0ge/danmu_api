@@ -13,6 +13,13 @@ export class Envs {
   static originalEnvVars = new Map();
   static accessedEnvVars = new Map();
 
+  // Node 本地部署时由 server.js 注入：启动前的真实系统环境变量快照（最高优先级判定依据）与 .env 原始解析结果
+  static systemEnvBackup = null;
+  static rawEnvValues = null;
+
+  // 允许在值中写入 # 等 dotenv 视为注释字符的文本类变量；读取时绕过 dotenv 截断以保留完整内容。仅纳入 encrypt=false 变量（带令牌/密码 URL 若入此集合会绕过加密返回明文，故禁止纳入）。
+  static RAW_ENV_KEYS = new Set(['AI_MATCH_PROMPT', 'ANIME_TITLE_FILTER', 'AUTO_MATCH_MAPPING_TABLE', 'BLOCKED_WORDS', 'COLOR_POOL', 'CUSTOM_MERGE_RULES', 'DANMU_OFFSET', 'DANMU_PUSH_URL', 'EPISODE_TITLE_FILTER', 'IP_BLACKLIST', 'OTHER_SERVER', 'TITLE_MAPPING_TABLE', 'TITLE_NOISE_FILTER', 'VOD_SERVERS']);
+
   static VOD_ALLOWED_PLATFORMS = ['qiyi', 'bilibili1', 'imgo', 'youku', 'qq', 'migu', 'sohu', 'leshi', 'xigua', 'maiduidui', 'aiyifan']; // vod允许的播放平台
   static ALLOWED_PLATFORMS = ['qiyi', 'bilibili1', 'imgo', 'youku', 'qq', 'migu', 'renren', 'hanjutv', 'sohu', 'leshi', 'xigua', 'maiduidui', 'aiyifan', 'hongguo', 'dandan', 'bahamut', 'animeko', 'custom']; // 全部源允许的播放平台
   static ALLOWED_SOURCES = ['360', 'vod', 'tmdb', 'douban', 'tencent', 'youku', 'iqiyi', 'imgo', 'bilibili', 'migu', 'renren', 'hanjutv', 'sohu', 'leshi', 'xigua', 'maiduidui', 'aiyifan', 'hongguo', 'dandan', 'bahamut', 'animeko', 'custom']; // 允许的源
@@ -63,6 +70,10 @@ export class Envs {
    * @returns {any} 转换后的值
    */
   static get(key, defaultValue, type = 'string', encrypt = false) {
+    // 文本类且未加密的自定义变量绕过 dotenv 注释截断，保留 # 等字符；加密变量不在此路径，避免绕过加密返回明文
+    if (type === 'string' && !encrypt && Envs.RAW_ENV_KEYS.has(key)) {
+      return this.getRawEnv(key, defaultValue);
+    }
     let value;
     if (typeof this.env !== 'undefined' && this.env[key]) {
       value = this.env[key];
@@ -117,6 +128,64 @@ export class Envs {
    */
   static encryptStr(str) {
     return '*'.repeat(str.length);
+  }
+
+  /**
+   * 解析 .env 原始内容：跳过整行 # 注释、保留行内 #，并剥除整体双引号包裹（与 node-handler 引号写入一致）。
+   * @param {string} text .env 文件原始内容
+   * @returns {Object} 键值映射
+   */
+  static parseRawEnvText(text) {
+    const result = {};
+    if (typeof text !== 'string') return result;
+    const lines = text.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (!key) continue;
+      let value = trimmed.slice(eq + 1).trim();
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      }
+      result[key] = value;
+    }
+    return result;
+  }
+
+  /**
+   * 读取自定义文本类变量，绕过 dotenv 截断保留 #：系统环境变量 > .env 原始值 > 默认值；非 Node 部署退化为普通取值。
+   * @param {string} key 环境变量键
+   * @param {string} defaultValue 默认值
+   * @returns {string} 原始值（含 #）
+   */
+  static getRawEnv(key, defaultValue = '') {
+    const finalize = (v) => {
+      this.originalEnvVars.set(key, v);
+      this.accessedEnvVars.set(key, v);
+      return v;
+    };
+
+    // 非 Node 运行时（测试 / Workers）：不做文件读取，等价于普通取值，保证测试隔离与平台兼容
+    if (!Envs.systemEnvBackup) {
+      if (this.env && this.env[key]) return finalize(this.env[key]);
+      if (typeof process !== 'undefined' && process.env?.[key]) return finalize(process.env[key]);
+      return finalize(defaultValue);
+    }
+
+    // Node 运行时：系统环境变量始终最高优先级
+    if (Object.prototype.hasOwnProperty.call(Envs.systemEnvBackup, key)) {
+      return finalize(Envs.systemEnvBackup[key]);
+    }
+
+    // 否则读取 .env 原始行（保留 #），未配置该键时回退 process.env 或默认值
+    if (Envs.rawEnvValues && Object.prototype.hasOwnProperty.call(Envs.rawEnvValues, key)) {
+      return finalize(Envs.rawEnvValues[key]);
+    }
+    if (typeof process !== 'undefined' && process.env?.[key]) return finalize(process.env[key]);
+    return finalize(defaultValue);
   }
 
   /**
@@ -321,8 +390,7 @@ export class Envs {
         console.warn(`[Envs] 解析合并映射表规则失败: ${rStr}`, e);
       }
     }
-    
-    this.accessedEnvVars.set('CUSTOM_MERGE_RULES', raw);
+
     return rules;
   }
 

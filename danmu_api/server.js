@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { Request as NodeFetchRequest } from 'node-fetch';
 import { handleRequest } from './worker.js';
 import { Globals } from './configs/globals.js';
+import { Envs } from './configs/envs.js';
 import { clearBangumiDataCache, initBangumiData } from './utils/bangumi-data-util.js';
 import { getLocalCaches, judgeLocalCacheValid } from './utils/cache-util.js';
 import { getRedisCaches, judgeRedisValid } from './utils/redis-util.js';
@@ -40,6 +41,9 @@ const envPath = path.join(configDir, '.env');
 
 // 保存系统环境变量的副本，确保它们具有最高优先级
 const systemEnvBackup = { ...process.env };
+
+// 注入到 Envs，供自定义规则变量读取时判定系统环境变量优先级（绕过 dotenv 注释截断）
+Envs.systemEnvBackup = systemEnvBackup;
 
 
 // 引入 zlib 模块，用于响应数据的 GZIP 压缩
@@ -135,6 +139,15 @@ function loadEnv() {
     // 最后，恢复系统环境变量的值，确保它们具有最高优先级
     for (const [key, value] of Object.entries(systemEnvBackup)) {
       process.env[key] = value;
+    }
+
+    // 解析 .env 原始内容，供支持自定义规则的变量绕过 dotenv 注释截断（保留 # 等字符）
+    try {
+      if (fs.existsSync(envPath)) {
+        Envs.rawEnvValues = Envs.parseRawEnvText(fs.readFileSync(envPath, 'utf8'));
+      }
+    } catch (e) {
+      // 原始解析失败不影响启动，相关变量回退到普通取值语义
     }
 
     console.log('[server] .env file loaded successfully');
