@@ -11,6 +11,7 @@ import { getFongmiDanmaku } from "./apis/clients/fongmi-api.js";
 import { handleConfig, handleUI, handleLogs, handleClearLogs, handleDeploy, handleClearCache, handleReqRecords, handleCacheAnimes } from "./apis/system-api.js";
 import { handleForwardTrace } from "./apis/forward-trace-api.js";
 import { handleSetEnv, handleAddEnv, handleDelEnv, handleAiVerify } from "./apis/env-api.js";
+import { extendBangumiDownloadLifecycle } from "./utils/bangumi-data-util.js";
 import { Segment } from "./models/dandan-model.js"
 import {
     handleCookieStatus,
@@ -742,11 +743,14 @@ function detectDeployPlatform(env) {
 
 // --- Cloudflare Workers 入口 ---
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // 获取客户端的真实 IP
     const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
 
-    return handleRequest(request, env, detectDeployPlatform(env), clientIp);
+    const response = await handleRequest(request, env, detectDeployPlatform(env), clientIp);
+    // 边缘运行时在响应返回后延长生命周期，容纳可能在途的 Bangumi Data 后台静默下载
+    extendBangumiDownloadLifecycle(ctx);
+    return response;
   },
 };
 
