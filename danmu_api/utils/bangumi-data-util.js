@@ -18,15 +18,11 @@ let downloadLockTime = 0;
 let memoryFootprintMB = '0.00';
 let hasLoggedCacheWarning = false;
 let charInvertedIndex = new Map();
-// 在途后台下载 Promise：由 initBangumiData 在发起非阻塞刷新时写入，供边缘层 ctx.waitUntil 延长 Serverless 生命周期
-let currentBackgroundDownload = null;
+let currentBackgroundDownload = null; // 在途后台下载 Promise：由 initBangumiData 在发起非阻塞刷新时写入，供边缘层 ctx.waitUntil 延长 Serverless 生命周期
 
-// 当前生效的数据源标识 ('custom' | 'official')
-let activeDataSource = 'custom';
-// 缓存已解析的版本号（进程内有效）
-let cachedCustomVersion = null;
+let activeDataSource = 'custom'; // 当前生效的数据源标识 ('custom' | 'official')
+let cachedCustomVersion = null; // 缓存已解析的版本号（进程内有效）
 let cachedOfficialVersion = null;
-
 let versionQueryPromise = null; // 版本查询并发锁：serverless环境下冻结时异步信号可能不生效，共享同一Promise避免重复探测
 
 // 定义缓存目录/文件名
