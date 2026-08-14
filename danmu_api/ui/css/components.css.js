@@ -2593,6 +2593,11 @@ body[data-theme$="-dark"] .heatmap-bar {
     gap: 10px;
 }
 
+.recent-data-load-more {
+    width: 100%;
+    margin-top: 10px;
+}
+
 .anime-cache-card {
     background: var(--theme-container-bg);
     border: 1px solid var(--theme-border);
@@ -2616,8 +2621,7 @@ body[data-theme$="-dark"] .heatmap-bar {
     width: 56px;
     height: 76px;
     border-radius: 8px;
-    background-size: cover;
-    background-position: center;
+    object-fit: cover;
     background-color: var(--theme-panel-strong);
     flex-shrink: 0;
 }
@@ -2632,9 +2636,7 @@ body[data-theme$="-dark"] .heatmap-bar {
     font-weight: 700;
     color: var(--theme-text);
     margin-bottom: 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: break-word;
 }
 
 .anime-cache-meta {
@@ -2664,8 +2666,7 @@ body[data-theme$="-dark"] .heatmap-bar {
     width: 36px;
     height: 48px;
     border-radius: 6px;
-    background-size: cover;
-    background-position: center;
+    object-fit: cover;
     background-color: var(--theme-panel-strong);
     flex-shrink: 0;
 }
