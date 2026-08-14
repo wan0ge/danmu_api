@@ -3050,23 +3050,25 @@ function renderAnimeCachePanel(data, listContainer) {
 
     // 内部辅助函数：生成操作按钮
     const generateButtons = (title, source) => {
+        const safeTitle = escapeHtml(title);
+        const safeSource = escapeHtml(source);
         if (currentKey === 'CUSTOM_MERGE_RULES') {
             return \`
                 <div style="display:flex;flex-direction:column;gap:4px;">
-                    <button type="button" class="btn btn-sm btn-xs" onclick="fillMergeEntity('sec', '\${title}', '\${source}')">设为副</button>
-                    <button type="button" class="btn btn-sm btn-primary btn-xs" onclick="fillMergeEntity('prim', '\${title}', '\${source}')">设为主</button>
+                    <button type="button" class="btn btn-sm btn-xs" data-fill-action="merge-sec" data-fill-title="\${safeTitle}" data-fill-source="\${safeSource}">设为副</button>
+                    <button type="button" class="btn btn-sm btn-primary btn-xs" data-fill-action="merge-prim" data-fill-title="\${safeTitle}" data-fill-source="\${safeSource}">设为主</button>
                 </div>
             \`;
         } else if (currentKey === 'DANMU_OFFSET') {
             return \`
-                <button type="button" class="btn btn-sm btn-primary btn-xs" onclick="fillOffsetEntity('\${title}', '\${source}')">填入</button>
+                <button type="button" class="btn btn-sm btn-primary btn-xs" data-fill-action="offset" data-fill-title="\${safeTitle}" data-fill-source="\${safeSource}">填入</button>
             \`;
         }
         return '';
     };
 
     // 内部辅助函数：清洗标题
-    const cleanTitleStr = (rawTitle) => rawTitle.replace(/\\s*from\\s+.*$/i, '').trim().replace(/'/g, '&apos;');
+    const cleanTitleStr = (rawTitle) => rawTitle.replace(/\\s*from\\s+.*$/i, '').trim();
 
     const nextCount = Math.min(recentAnimeDisplayedCount + RECENT_DATA_PAGE_SIZE, data.length);
     const newItems = data.slice(recentAnimeDisplayedCount, nextCount);
@@ -3101,8 +3103,8 @@ function renderAnimeCachePanel(data, listContainer) {
 
                         let mainSide = '(主源越界)';
                         if (hasMainMatch) {
-                            const cleanMainEpTitle = (link.title || '未知剧集').replace(/^【.*?】\\s*/, '').replace(/'/g, '&apos;').replace(/"/g, '&quot;');
-                            mainSide = \`【\${item.source}】\${cleanMainEpTitle}\`;
+                            const cleanMainEpTitle = escapeHtml((link.title || '未知剧集').replace(/^【.*?】\\s*/, ''));
+                            mainSide = \`【\${escapeHtml(item.source)}】\${cleanMainEpTitle}\`;
                         }
 
                         let childSide = '(副源缺失)';
@@ -3120,13 +3122,13 @@ function renderAnimeCachePanel(data, listContainer) {
                                 if (child.links && child.links.length > 0) {
                                     const childLink = child.links.find(l => String(l.url) === String(childId));
                                     if (childLink && childLink.title) {
-                                        childTitleStr = childLink.title.replace(/^【.*?】\\s*/, '').replace(/'/g, '&apos;').replace(/"/g, '&quot;');
+                                        childTitleStr = childLink.title.replace(/^【.*?】\\s*/, '');
                                     }
                                 }
                             } else {
-                                childTitleStr = (link.title || '').replace(/^【.*?】\\s*/, '').replace(/'/g, '&apos;').replace(/"/g, '&quot;');
+                                childTitleStr = (link.title || '').replace(/^【.*?】\\s*/, '');
                             }
-                            childSide = \`【\${child.source}】\${childTitleStr}\`;
+                            childSide = \`【\${escapeHtml(child.source)}】\${escapeHtml(childTitleStr)}\`;
                             
                             const numMatch = childTitleStr.match(/\\d+/);
                             if (numMatch) {
@@ -3176,8 +3178,8 @@ function renderAnimeCachePanel(data, listContainer) {
                         <div class="anime-cache-child-main">
                             \${childCoverHtml}
                             <div class="anime-cache-child-info">
-                                <div class="anime-cache-child-title" title="\${child.animeTitle}">\${childCleanTitle}</div>
-                                <div class="anime-cache-meta">[\${child.source}] (\${child.episodes}集)</div>
+                                <div class="anime-cache-child-title" title="\${escapeHtml(child.animeTitle)}">\${escapeHtml(childCleanTitle)}</div>
+                                <div class="anime-cache-meta">[\${escapeHtml(child.source)}] (\${child.episodes}集)</div>
                             </div>
                             <div class="anime-cache-child-actions">
                                 \${generateButtons(childCleanTitle, child.source)}
@@ -3201,7 +3203,7 @@ function renderAnimeCachePanel(data, listContainer) {
         if (item.links && item.links.length > 0) {
             episodesCount = item.links.length;
             const epItems = item.links.map(link => {
-                const safeTitle = link.title ? link.title.replace(/'/g, '&apos;').replace(/"/g, '&quot;') : '未知剧集';
+                const safeTitle = link.title ? escapeHtml(link.title) : '未知剧集';
                 return \`
                     <div class="anime-cache-child-item" style="padding: 6px;">
                         <div class="anime-cache-child-main">
@@ -3239,8 +3241,8 @@ function renderAnimeCachePanel(data, listContainer) {
                 <div class="anime-cache-card-body">
                     \${coverHtml}
                     <div class="anime-cache-info">
-                        <div class="anime-cache-title" title="\${item.animeTitle}">\${cleanTitle}</div>
-                        <div class="anime-cache-meta">[\${item.source}] (\${item.episodes}集)</div>
+                        <div class="anime-cache-title" title="\${escapeHtml(item.animeTitle)}">\${escapeHtml(cleanTitle)}</div>
+                        <div class="anime-cache-meta">[\${escapeHtml(item.source)}] (\${item.episodes}集)</div>
                     </div>
                     <div class="anime-cache-actions">
                         \${generateButtons(cleanTitle, item.source)}
@@ -3348,4 +3350,20 @@ function fillOffsetEntity(title, source) {
         applyInputFeedback(inputEl);
     }
 }
+
+// 处理最近数据面板快捷填入按钮的点击
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-fill-action]');
+    if (!btn) return;
+    const action = btn.dataset.fillAction;
+    const title = btn.dataset.fillTitle;
+    const source = btn.dataset.fillSource;
+    if (action === 'offset') {
+        fillOffsetEntity(title, source);
+    } else if (action === 'merge-sec') {
+        fillMergeEntity('sec', title, source);
+    } else if (action === 'merge-prim') {
+        fillMergeEntity('prim', title, source);
+    }
+});
 `;

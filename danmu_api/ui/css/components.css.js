@@ -2680,9 +2680,7 @@ body[data-theme$="-dark"] .heatmap-bar {
     font-size: 12px;
     font-weight: 600;
     color: var(--theme-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: break-word;
 }
 
 .anime-cache-child-actions {
