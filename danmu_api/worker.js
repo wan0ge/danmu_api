@@ -585,7 +585,7 @@ async function handleRequest(req, env, deployPlatform, clientIp) {
 
   // POST /api/cache/clear - 清理缓存
   if (path === "/api/cache/clear" && method === "POST") {
-    return handleClearCache();
+    return handleClearCache(req);
   }
 
   // ========== Cookie 管理 API ==========
