@@ -50,6 +50,7 @@ import { convertToAsciiSum } from "./utils/codec-util.js";
 import { convertToDanmakuJson, handleDanmusLike } from "./utils/danmu-util.js";
 import { Segment, SegmentListResponse } from "./models/dandan-model.js"
 import { initBangumiData, searchBangumiData, clearBangumiDataCache } from "./utils/bangumi-data-util.js";
+import { generateNipaplaySignature, parseNipaplayRelatedLinks, resolveNipaplayLink, applyShiftToDanmu } from "./utils/nipaplay-util.js";
 
 // Mock Request class for testing
 class MockRequest {
@@ -1003,6 +1004,127 @@ test('worker.js API endpoints', async (t) => {
       assert.doesNotThrow(() => new Function(previewJsContent));
       assert.match(previewJsContent, /AUTO_MATCH_MAPPING_TABLE/);
     });
+
+  await t.test('handleClearCache clears only the selected cache items', async t => {
+    // 各清理项对应的全局状态种子；favorites 不在清理范围内，用于验证不被误清
+    const seed = () => {
+      Globals.animes = [{ id: 1 }];
+      Globals.episodeIds = ['ep1'];
+      Globals.episodeNum = 50000;
+      Globals.lastSelectMap = new Map([['k', {}]]);
+      Globals.searchCache = new Map([['k', {}]]);
+      Globals.commentCache = new Map([['k', {}]]);
+      Globals.requestHistory = new Map([['ip', []]]);
+      Globals.reqRecords = [{ a: 1 }];
+      Globals.todayReqNum = 42;
+      Globals.favoriteCache = new Map([['fav', {}]]);
+      Globals.useBangumiData = false;
+    };
+
+    await t.test('single item clears only that item', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['animes'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(body.clearedItems.animes, 0);
+      assert.equal(Globals.animes.length, 0);
+      assert.equal(Globals.episodeIds.length, 1);
+      assert.equal(Globals.lastSelectMap.size, 1);
+      assert.equal(Globals.searchCache.size, 1);
+      assert.equal(Globals.commentCache.size, 1);
+      assert.equal(Globals.requestHistory.size, 1);
+    });
+
+    await t.test('invalid keys are filtered out and do not throw', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['animes', 'notARealKey', 'animesX'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(Globals.animes.length, 0);
+      assert.equal(Globals.searchCache.size, 1);
+      assert.equal(Globals.commentCache.size, 1);
+    });
+
+    await t.test('requestHistory folds reqRecords and todayReqNum', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['requestHistory'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(body.clearedItems.requestHistory, 0);
+      assert.equal(body.clearedItems.reqRecords, 0);
+      assert.equal(body.clearedItems.todayReqNum, 0);
+      assert.equal(Globals.requestHistory.size, 0);
+      assert.deepEqual(Globals.reqRecords, []);
+      assert.equal(Globals.todayReqNum, 0);
+      assert.equal(Globals.animes.length, 1);
+    });
+
+    await t.test('episodeNum resets to the initial value 10001', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['episodeNum'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(body.clearedItems.episodeNum, 10001);
+      assert.equal(Globals.episodeNum, 10001);
+      assert.equal(Globals.animes.length, 1);
+    });
+
+    await t.test('favorites are preserved across full clear', async () => {
+      seed();
+      const res = await handleClearCache();
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(Globals.favoriteCache.size, 1);
+      assert.equal(Globals.animes.length, 0);
+      assert.equal(Globals.episodeIds.length, 0);
+      assert.equal(Globals.lastSelectMap.size, 0);
+      assert.equal(Globals.searchCache.size, 0);
+      assert.equal(Globals.commentCache.size, 0);
+      assert.equal(Globals.requestHistory.size, 0);
+      assert.equal(Globals.todayReqNum, 0);
+      assert.deepEqual(Globals.reqRecords, []);
+    });
+
+    await t.test('empty items array clears nothing', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: [] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(Globals.animes.length, 1);
+      assert.equal(Globals.searchCache.size, 1);
+      assert.equal(Globals.commentCache.size, 1);
+    });
+
+    await t.test('malformed body (non-array items) triggers full clear', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: 'animes' }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(Globals.animes.length, 0);
+      assert.equal(Globals.searchCache.size, 0);
+    });
+
+    await t.test('bangumiData is a recognized key and isolated from other caches', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['bangumiData'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(body.clearedItems.bangumiData, 0);
+      assert.equal(Globals.animes.length, 1);
+      assert.equal(Globals.searchCache.size, 1);
+    });
+
+    await t.test('prototype keys like __proto__ are rejected and do not break the clear', async () => {
+      seed();
+      const res = await handleClearCache({ json: async () => ({ items: ['animes', '__proto__', 'constructor', 'animes'] }) });
+      const body = await parseResponse(res);
+      assert.equal(body.success, true);
+      assert.equal(Globals.animes.length, 0);
+      assert.equal(Globals.searchCache.size, 1);
+      assert.equal(Globals.commentCache.size, 1);
+    });
+  });
+
   });
 
   // await t.test('GET /api/v2/comment/:id?format=json&duration=true should return segment duration and reuse comment cache', async () => {
@@ -2759,4 +2881,52 @@ test('worker.js API endpoints', async (t) => {
 //     Envs.rawEnvValues = { DANMU_PUSH_URL: 'http://x.com/cb#frag' };
 //     assert.strictEqual(Envs.get('DANMU_PUSH_URL', 'DEF', 'string', true), 'DEF');
 //   });
+
+// test('nipaplay 弹弹302关联工具函数', async (t) => {
+//
+//   // generateNipaplaySignature：相同入参确定性产出，输出为 sha256 的 base64（44 字符）
+//   const sig1 = generateNipaplaySignature('app', '1700000000', '/api/v2/comment/1', 'secret');
+//   const sig2 = generateNipaplaySignature('app', '1700000000', '/api/v2/comment/1', 'secret');
+//   assert.strictEqual(sig1, sig2, '相同入参签名一致');
+//   assert.strictEqual(sig1.length, 44, 'sha256 base64 长度为 44');
+//   const sig3 = generateNipaplaySignature('app', '1700000001', '/api/v2/comment/1', 'secret');
+//   assert.notStrictEqual(sig1, sig3, 'timestamp 不同签名不同');
+//
+//   // parseNipaplayRelatedLinks：解析 urls（|）与 shift（,），按主机名映射到内部源并还原时间偏移
+//   const location = 'https://x.test/redirect?urls=https://www.bilibili.com/video/BV1xx|https://ani.gamer.com.tw/animeVideo.php?sn=12345&shift=0,30';
+//   const parsed = parseNipaplayRelatedLinks(location);
+//   assert.strictEqual(parsed.bilibili.length, 1, 'bilibili 链接被解析');
+//   assert.strictEqual(parsed.bilibili[0].url, 'https://www.bilibili.com/video/BV1xx', 'bilibili 仅保留 BV 主体');
+//   assert.strictEqual(parsed.bilibili[0].shift, 0, 'bilibili shift 为 0');
+//   assert.strictEqual(parsed.bahamut.length, 1, 'bahamut 链接被解析');
+//   assert.strictEqual(parsed.bahamut[0].url, 'https://ani.gamer.com.tw/animeVideo.php?sn=12345', 'bahamut 保留原始 URL');
+//   assert.strictEqual(parsed.bahamut[0].shift, 30, 'bahamut shift 为 30');
+//   assert.strictEqual(parsed.iqiyi.length, 0, '未提供平台为空');
+//   for (const k of ['bilibili', 'bahamut', 'iqiyi', 'youku', 'tencent', 'imgo']) {
+//     assert.deepStrictEqual(parseNipaplayRelatedLinks('')[k], [], `空字符串入参 ${k} 为空数组`);
+//     assert.deepStrictEqual(parseNipaplayRelatedLinks(null)[k], [], `空入参 ${k} 为空数组`);
+//   }
+//
+//   // resolveNipaplayLink：主机名到源路由，bahamut 提取 sn
+//   assert.deepStrictEqual(resolveNipaplayLink('https://ani.gamer.com.tw/animeVideo.php?sn=999'), { source: 'bahamut', realId: '999' });
+//   assert.deepStrictEqual(resolveNipaplayLink('https://v.qq.com/x/cover/abc.html'), { source: 'tencent', realId: 'https://v.qq.com/x/cover/abc.html' });
+//   assert.deepStrictEqual(resolveNipaplayLink('https://www.bilibili.com/video/BVxyz'), { source: 'bilibili', realId: 'https://www.bilibili.com/video/BVxyz' });
+//   assert.deepStrictEqual(resolveNipaplayLink('https://bilibili.com/video/BVxyz'), { source: 'bilibili', realId: 'https://bilibili.com/video/BVxyz' }, '无 www 前缀的裸域名同样归入 bilibili');
+//   assert.deepStrictEqual(resolveNipaplayLink('https://b23.tv/BVxyz'), { source: 'bilibili', realId: 'https://b23.tv/BVxyz' }, 'b站短链 b23.tv 经统一映射归入 bilibili');
+//   assert.deepStrictEqual(resolveNipaplayLink('https://unknown.example/x'), { source: null, realId: 'https://unknown.example/x' });
+//
+//   // parse 与 resolve 对 b23.tv 的识别保持一致：均归入 bilibili
+//   const b23Location = 'https://x.test/redirect?urls=https://b23.tv/BV1xx&shift=0';
+//   const b23Parsed = parseNipaplayRelatedLinks(b23Location);
+//   assert.strictEqual(b23Parsed.bilibili.length, 1, 'b23.tv 链接经 parse 归入 bilibili');
+//   assert.deepStrictEqual(resolveNipaplayLink(b23Parsed.bilibili[0].url), { source: 'bilibili', realId: b23Parsed.bilibili[0].url }, 'parse 与 resolve 对 b23.tv 的源识别一致');
+//
+//   // applyShiftToDanmu：校正时间偏移并标记实时拉取，不污染原对象
+//   const src = { p: '12.34,1,25,16777215,0', t: 12.34 };
+//   const shifted = applyShiftToDanmu(src, 5);
+//   assert.strictEqual(shifted.p, '17.34,1,25,16777215,0', 'p 时间字段加偏移');
+//   assert.strictEqual(shifted.t, 17.34, 't 加偏移');
+//   assert.strictEqual(shifted.isRealTimePulled, true, '标记为实时拉取');
+//   assert.strictEqual(src.p, '12.34,1,25,16777215,0', '原对象未被修改');
+//   assert.strictEqual(applyShiftToDanmu(null, 5), null, '空对象直接返回');
 // });
