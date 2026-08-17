@@ -18,7 +18,7 @@ import {
   extractYear, titleMatches, extractAnimeInfo, extractEpisodeNumberFromTitle, extractSeasonNumberFromAnimeTitle, extractAnimeTitle
 } from "../utils/common-util.js";
 import { getTMDBChineseTitle, getTmdbSeasonBoundaries } from "../utils/tmdb-util.js";
-import { applyMergeLogic, mergeDanmakuList, MERGE_DELIMITER, alignSourceTimelines } from "../utils/merge-util.js";
+import { applyMergeLogic, mergeDanmakuList, MERGE_DELIMITER, alignSourceTimelines, sanitizeUrl } from "../utils/merge-util.js";
 import { getHanjutvSourceLabel } from "../utils/hanjutv-util.js";
 import AIClient from '../utils/ai-util.js';
 import Kan360Source from "../sources/kan360.js";
@@ -2620,20 +2620,22 @@ export async function getComment(path, queryFormat, segmentFlag, clientIp, inclu
     // 请求其他平台弹幕
     const urlPattern = /^(https?:\/\/)?([\w.-]+)\.([a-z]{2,})(\/.*)?$/i;
     if (!urlPattern.test(url)) {
+      // 剥离单源 source:id 前缀（如 bahamut:50709 → 50709），使各源拿到真实 ID，与合并路径分割逻辑一致
+      const sourceUrl = sanitizeUrl(commentUrl);
       if (plat === "renren") {
-        danmus = await sourceLogContext.run('renren', () => renrenSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('renren', () => renrenSource.getComments(sourceUrl, plat, segmentFlag));
       } else if (plat === "hanjutv") {
-        danmus = await sourceLogContext.run('hanjutv', () => hanjutvSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('hanjutv', () => hanjutvSource.getComments(sourceUrl, plat, segmentFlag));
       } else if (plat === "bahamut") {
-        danmus = await sourceLogContext.run('bahamut', () => bahamutSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('bahamut', () => bahamutSource.getComments(sourceUrl, plat, segmentFlag));
       } else if (plat === "dandan") {
-        danmus = await sourceLogContext.run('dandan', () => dandanSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('dandan', () => dandanSource.getComments(sourceUrl, plat, segmentFlag));
       } else if (plat === "custom") {
-        danmus = await sourceLogContext.run('custom', () => customSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('custom', () => customSource.getComments(sourceUrl, plat, segmentFlag));
       } else if (plat === "animeko") {
-        danmus = await sourceLogContext.run('animeko', () => animekoSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('animeko', () => animekoSource.getComments(sourceUrl, plat, segmentFlag));
       } else if (plat === "hongguo") {
-        danmus = await sourceLogContext.run('hongguo', () => hongguoSource.getComments(url, plat, segmentFlag));
+        danmus = await sourceLogContext.run('hongguo', () => hongguoSource.getComments(sourceUrl, plat, segmentFlag));
       }
     }
 
