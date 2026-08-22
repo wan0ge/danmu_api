@@ -22,6 +22,9 @@ import { formatHostForUrl, listenOnAllInterfaces } from './utils/server-listen-u
 // server.js - 本地node智能启动脚本：根据 Node.js 环境自动选择最优启动模式
 // =====================
 
+// 本地 Node 旧版本兼容层（始终最先加载）：补齐 Node 18 下 @dan-uni/dan-any 依赖缺失的原生 API
+import './polyfill-legacy-node.cjs';
+
 // 导入 ES module 兼容层（始终加载，但内部会根据需要启用）
 import './esm-shim.cjs';
 
