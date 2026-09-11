@@ -3,12 +3,12 @@ export const previewJsContent = /* javascript */ `
 const previewCategoryOrder = ['api', 'source', 'match', 'danmu', 'cache', 'system'];
 
 const previewCategoryMeta = {
-    api: { label: '🔗 API 配置', description: '访问凭证与请求控制' },
-    source: { label: '📜 源配置', description: '弹幕源、VOD 服务与平台凭证' },
-    match: { label: '🔍 匹配配置', description: '标题处理、匹配策略与 AI 服务' },
-    danmu: { label: '🔣 弹幕配置', description: '过滤、转换、输出与时间调整' },
-    cache: { label: '💾 缓存配置', description: '缓存时效、容量与 Redis 服务' },
-    system: { label: '⚙️ 系统配置', description: '界面、网络、部署与安全设置' }
+    api: { icon: 'link', label: 'API 配置', description: '访问凭证与请求控制' },
+    source: { icon: 'layers', label: '源配置', description: '弹幕源、VOD 服务与平台凭证' },
+    match: { icon: 'search', label: '匹配配置', description: '标题处理、匹配策略与 AI 服务' },
+    danmu: { icon: 'comment', label: '弹幕配置', description: '过滤、转换、输出与时间调整' },
+    cache: { icon: 'database', label: '缓存配置', description: '缓存时效、容量与 Redis 服务' },
+    system: { icon: 'settings', label: '系统配置', description: '界面、网络、部署与安全设置' }
 };
 
 const previewGroupDefinitions = {
@@ -123,7 +123,7 @@ function renderPreviewNavigation() {
             aria-pressed="\${inOverview}"
             \${inOverview ? '' : 'title="返回总览"'}
         >
-            <span>🗂\uFE0E 总览</span>
+            <span class="ui-icon-label">\${uiIcon('layout-grid')}总览</span>
             <span class="preview-category-count">\${totalCount}</span>
         </button>
     \`;
@@ -131,6 +131,7 @@ function renderPreviewNavigation() {
     const categories = [
         ...previewCategoryOrder.map(category => ({
             key: category,
+            icon: previewCategoryMeta[category].icon,
             label: previewCategoryMeta[category].label,
             count: (previewState.categorizedVars[category] || []).length
         }))
@@ -145,7 +146,7 @@ function renderPreviewNavigation() {
                 onclick="selectPreviewCategory('\${category.key}')"
                 aria-pressed="\${isActive}"
             >
-                <span>\${category.label}</span>
+                <span class="ui-icon-label">\${uiIcon(category.icon)}\${category.label}</span>
                 <span class="preview-category-count">\${category.count}</span>
             </button>
         \`;
@@ -182,11 +183,11 @@ function renderPreviewOverview() {
         const count = (previewState.categorizedVars[category] || []).length;
         return \`
             <button type="button" class="preview-summary" onclick="selectPreviewCategory('\${category}')">
-                <span class="preview-summary-title">\${meta.label}</span>
+                <span class="preview-summary-title ui-icon-label">\${uiIcon(meta.icon)}\${meta.label}</span>
                 <span class="preview-summary-description">\${meta.description}</span>
                 <span class="preview-summary-side">
                     <span class="preview-summary-count">\${count}</span>
-                    <span class="preview-summary-arrow" aria-hidden="true">&rsaquo;</span>
+                    <span class="preview-summary-arrow" aria-hidden="true">\${uiIcon('chevron-right')}</span>
                 </span>
             </button>
         \`;
@@ -248,7 +249,7 @@ function renderPreviewSearchResults(query) {
         html += \`
             <section class="preview-group preview-search-group">
                 <div class="preview-group-heading">
-                    <h3>\${previewCategoryMeta[category].label}</h3>
+                    <h3 class="ui-icon-label">\${uiIcon(previewCategoryMeta[category].icon)} \${previewCategoryMeta[category].label}</h3>
                     <span>\${matches.length} 项</span>
                 </div>
                 <div class="preview-list">
@@ -277,7 +278,7 @@ function renderPreviewItem(item, category, index) {
                     <code class="preview-value\${isLong ? ' is-collapsed' : ''}" id="\${valueId}">\${escapeHtml(value)}</code>
                     <div class="preview-value-actions">
                         \${isLong ? \`<button type="button" class="preview-action-btn preview-expand-btn" onclick="togglePreviewValue(this)" aria-controls="\${valueId}" aria-expanded="false">展开</button>\` : ''}
-                        <button type="button" class="preview-action-btn preview-copy-btn" onclick="copyPreviewValue('\${category}', \${index}, this)" title="复制配置值" aria-label="复制 \${escapeHtml(item.key)} 的值"><span aria-hidden="true">⧉</span></button>
+                        <button type="button" class="preview-action-btn preview-copy-btn" onclick="copyPreviewValue('\${category}', \${index}, this)" title="复制配置值" aria-label="复制 \${escapeHtml(item.key)} 的值">\${uiIcon('copy')}</button>
                     </div>
                 </div>
             </div>
@@ -381,7 +382,7 @@ async function copyPreviewValue(category, index, button) {
         }
 
         const originalContent = button.innerHTML;
-        button.textContent = '✓';
+        button.innerHTML = uiIcon('check');
         button.classList.add('is-copied');
         button.setAttribute('title', '已复制');
         setTimeout(() => {

@@ -216,7 +216,6 @@ body[data-theme] .theme-option:focus-visible, body[data-theme] .btn:focus-visibl
 .theme-option-label { font-size: 11px; font-weight: 600; white-space: nowrap; }
 .config-transfer-btn { display: inline-flex; align-items: center; gap: 7px; }
 .env-toolbar-actions .btn { align-items: center; display: inline-flex; justify-content: center; gap: 7px; line-height: 1.2; min-height: 38px; white-space: nowrap; }
-.config-transfer-icon { font-size: 20px; font-weight: 700; line-height: 1; }
 
 /* ============ 自定义滚动条 ============ */
 ::-webkit-scrollbar { width: 8px; height: 8px; }

@@ -4,6 +4,7 @@ import { componentsCssContent } from "./css/components.css.js";
 import { formsCssContent } from "./css/forms.css.js";
 import { responsiveCssContent } from "./css/responsive.css.js";
 import { themesCssContent } from "./css/themes.css.js";
+import { iconJsContent, iconsSpriteContent, renderIcon } from "./js/icons.js";
 import { mainJsContent } from "./js/main.js";
 import { previewJsContent } from "./js/preview.js";
 import { logviewJsContent } from "./js/logview.js";
@@ -32,6 +33,7 @@ export const HTML_TEMPLATE = /* html */ `
     
 </head>
 <body data-theme="globals.uiTheme">
+    ${iconsSpriteContent}
     <script>
         try {
             var storedTheme = localStorage.getItem('logvar_ui_theme');
@@ -47,7 +49,7 @@ export const HTML_TEMPLATE = /* html */ `
     </script>
     <div class="container">
         <div class="corner-fold"></div>
-        <button class="theme-corner-toggle" id="theme-corner-toggle" onclick="toggleColorScheme()" title="切换明暗模式" aria-label="切换明暗模式">🌙</button>
+        <button class="theme-corner-toggle" id="theme-corner-toggle" onclick="toggleColorScheme()" title="切换明暗模式" aria-label="切换明暗模式">${renderIcon('moon')}</button>
         <!-- 进度条 -->
         <div class="progress-container" id="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
@@ -62,7 +64,7 @@ export const HTML_TEMPLATE = /* html */ `
                 <div class="version-info">
                     <span class="version-badge">当前版本: <span id="current-version">v${globals.version}</span></span>
                     <a class="update-badge" id="update-badge" href="https://t.me/s/logvar_danmu_channel" target="_blank" rel="noopener" title="查看更新通知">
-                        🎉 最新版本: <span id="latest-version">加载中...</span>
+                        ${renderIcon('sparkles')} 最新版本: <span id="latest-version">加载中...</span>
                     </a>
                     <span class="api-endpoint-badge" onclick="copyApiEndpoint()" title="点击复制API端点" style="cursor: pointer;">
                         API端点: <span id="api-endpoint" style="color: #4CAF50; font-weight: bold;">加载中...</span>
@@ -85,7 +87,7 @@ export const HTML_TEMPLATE = /* html */ `
                 <h2>配置预览</h2>
                 
                 <div id="proxy-config-container" class="error-config-banner" style="display: none;">
-                    <h3 class="error-config-title">⚠️ 获取配置失败</h3>
+                    <h3 class="error-config-title ui-icon-label">${renderIcon('alert-triangle')} 获取配置失败</h3>
                     <p class="error-config-text">
                         检测到无法获取配置。如果您使用了复杂的反向代理：例如将 <code>http://{ip}:9321/</code> 代理到了 <code>http://{ip}:9321/danmu_api/</code>，请在此处手动输入完整的反代后链接（不包含TOKEN和ADMIN_TOKEN的）
                     </p>
@@ -130,8 +132,8 @@ export const HTML_TEMPLATE = /* html */ `
                 <h2>日志查看</h2>
                 <div class="log-controls">
                     <div>
-                        <button class="btn btn-primary" onclick="refreshLogs()">🔄 刷新日志</button>
-                        <button class="btn btn-danger" onclick="clearLogs()">🗑️ 清空日志</button>
+                        <button class="btn btn-primary" onclick="refreshLogs()">${renderIcon('refresh-cw')} 刷新日志</button>
+                        <button class="btn btn-danger" onclick="clearLogs()">${renderIcon('trash-2')} 清空日志</button>
                     </div>
                     <span style="color: #666;">实时日志监控</span>
                 </div>
@@ -283,7 +285,7 @@ export const HTML_TEMPLATE = /* html */ `
                 <h2>请求记录</h2>
                 <div class="log-controls">
                     <div>
-                        <button class="btn btn-primary" id="refresh-request-records">🔄 刷新记录</button>
+                        <button class="btn btn-primary" id="refresh-request-records">${renderIcon('refresh-cw')} 刷新记录</button>
                         <span id="total-requests-today" style="color: #ff5722; margin-left: 15px; vertical-align: middle; font-size: 1.2em; font-weight: bold;"></span>
                     </div>
                     <span style="color: #666;">云服务部署需要配置redis</span>
@@ -300,17 +302,17 @@ export const HTML_TEMPLATE = /* html */ `
                 </div>
                 <div class="env-toolbar-actions" style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="btn btn-primary config-transfer-btn" onclick="exportSystemConfig()" title="下载当前环境变量配置文件">
-                        <span class="config-transfer-icon" aria-hidden="true">📤</span> 导出配置
+                        ${renderIcon('upload')} 导出配置
                     </button>
                     <button class="btn btn-primary config-transfer-btn" onclick="triggerConfigImport()" title="上传 JSON 文件并导入环境变量配置">
-                        <span class="config-transfer-icon" aria-hidden="true">📥</span> 导入配置
+                        ${renderIcon('download')} 导入配置
                     </button>
                     <input type="file" id="config-import-file" accept=".json,application/json" style="display: none;" onchange="importSystemConfigFile(this.files[0])">
                     <button class="btn btn-danger" onclick="showClearCacheModal()" title="清理系统缓存">
-                        🗑️ 清理缓存
+                        ${renderIcon('trash-2')} 清理缓存
                     </button>
                     <button class="btn btn-success" onclick="showDeploySystemModal()" title="重新部署系统">
-                        🚀 重新部署
+                        ${renderIcon('cloud-up')} 重新部署
                     </button>
                 </div>
 
@@ -504,6 +506,7 @@ export const HTML_TEMPLATE = /* html */ `
     </nav>
 
     <script>
+        ${iconJsContent}
         ${mainJsContent}
         ${previewJsContent}
         ${logviewJsContent}

@@ -691,7 +691,7 @@ function updateColorSchemeToggle() {
     const btn = document.getElementById('theme-corner-toggle');
     if (!btn) return;
     const scheme = document.body.dataset.colorScheme || 'light';
-    btn.textContent = scheme === 'dark' ? '☀' : '🌙';
+    btn.innerHTML = uiIcon(scheme === 'dark' ? 'sun' : 'moon');
     btn.title = scheme === 'dark' ? '切换浅色模式' : '切换暗色模式';
 }
 
