@@ -914,8 +914,8 @@ function renderValueInput(item) {
                     <button type="button" class="btn btn-danger map-remove-btn" onclick="removeMapItem(this)">删除</button>
                 </div>
             </div>
-            <button type="button" class="btn btn-primary" onclick="addMapItem()">添加映射项</button>
-            <div style="margin-top: 15px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <button type="button" class="btn btn-primary" onclick="addMapItem()">添加映射项</button>
                 <button type="button" class="btn btn-primary btn-sm" onclick="fetchAndShowRecentData()">
                     \${uiIcon('bar-chart')} 查看最近数据
                 </button>
