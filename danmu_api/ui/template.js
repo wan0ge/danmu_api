@@ -62,12 +62,12 @@ export const HTML_TEMPLATE = /* html */ `
                     <h1>LogVar弹幕API</h1>
                 </div>
                 <div class="version-info">
-                    <span class="version-badge">当前版本: <span id="current-version">v${globals.version}</span></span>
+                    <span class="version-badge">${renderIcon('tag')} 当前版本: <span id="current-version">v${globals.version}</span></span>
                     <a class="update-badge" id="update-badge" href="https://t.me/s/logvar_danmu_channel" target="_blank" rel="noopener" title="查看更新通知">
                         ${renderIcon('sparkles')} 最新版本: <span id="latest-version">加载中...</span>
                     </a>
                     <span class="api-endpoint-badge" onclick="copyApiEndpoint()" title="点击复制API端点" style="cursor: pointer;">
-                        API端点: <span id="api-endpoint" style="color: #4CAF50; font-weight: bold;">加载中...</span>
+                        ${renderIcon('link')} API端点: <span id="api-endpoint" style="color: #4CAF50; font-weight: bold;">加载中...</span>
                     </span>
                 </div>
             </div>

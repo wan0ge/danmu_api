@@ -1,6 +1,6 @@
 // language=CSS
 export const componentsCssContent = /* css */ `
-/* 组件样式 — 参照 Bangumi-syncer ACG 设计系统 */
+/* 组件样式 — 参照 Bangumi-syncer 柔和圆角设计风格 */
 
 /* ============ 图标 ============ */
 /* 统一线性图标：尺寸随字号（1em），描边取 currentColor */

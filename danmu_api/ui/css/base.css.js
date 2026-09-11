@@ -1,6 +1,6 @@
 // language=CSS
 export const baseCssContent = /* css */ `
-/* 基础布局样式 — 参照 Bangumi-syncer 设计系统 */
+/* 基础布局样式 — 参照 Bangumi-syncer 柔和圆角设计风格 */
 
 /* ============ 全局重置 ============ */
 * {
@@ -206,8 +206,8 @@ body::before {
 }
 
 .version-badge {
-    background: var(--theme-accent-soft);
-    color: var(--theme-accent);
+    background: var(--theme-accent);
+    color: #ffffff;
     padding: 3px 12px;
     border-radius: 999px;
     font-weight: 600;
@@ -219,13 +219,12 @@ body::before {
 }
 
 .update-badge {
-    background: var(--theme-accent);
-    color: #ffffff;
+    background: var(--theme-accent-soft);
+    color: var(--theme-accent);
     padding: 3px 12px;
     border-radius: 999px;
     font-weight: 600;
     font-size: 11px;
-    animation: pulse 2s infinite;
     cursor: pointer;
     text-decoration: none;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -252,11 +251,6 @@ body::before {
     z-index: 1;
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
 }
 
 /* ============ 内容区 ============ */

@@ -915,6 +915,14 @@ function renderValueInput(item) {
                 </div>
             </div>
             <button type="button" class="btn btn-primary" onclick="addMapItem()">添加映射项</button>
+            <div style="margin-top: 15px; margin-bottom: 8px;">
+                <button type="button" class="btn btn-primary btn-sm" onclick="fetchAndShowRecentData()">
+                    \${uiIcon('bar-chart')} 查看最近数据
+                </button>
+            </div>
+            <div id="recent-data-panel" class="recent-data-panel">
+                <div id="recent-data-list"></div>
+            </div>
         \`;
 
         bindMapInputSync();
@@ -2380,18 +2388,7 @@ function renderEnvNavigation() {
 
     navigation.innerHTML = previewCategoryOrder.map(category => {
         const isActive = !envSearchQuery && currentCategory === category;
-        const count = (envVariables[category] || []).length;
-        return \`
-            <button
-                type="button"
-                class="preview-category-btn\${isActive ? ' active' : ''}"
-                onclick="switchCategory('\${category}')"
-                aria-pressed="\${isActive}"
-            >
-                <span class="ui-icon-label">\${uiIcon(previewCategoryMeta[category].icon)}\${previewCategoryMeta[category].label}</span>
-                <span class="preview-category-count">\${count}</span>
-            </button>
-        \`;
+        return renderCategoryNavButton(category, (envVariables[category] || []).length, isActive, "switchCategory('" + category + "')");
     }).join('');
 }
 
@@ -2486,7 +2483,7 @@ function renderEnvList() {
         html += \`
             <section class="preview-group env-search-group">
                 <div class="preview-group-heading">
-                    <h3 class="ui-icon-label">\${uiIcon(previewCategoryMeta[category].icon)} \${previewCategoryMeta[category].label}</h3>
+                    \${renderCategoryHeading(category)}
                     <span>\${regularMatches.length} 项</span>
                 </div>
                 <div>

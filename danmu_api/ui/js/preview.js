@@ -11,6 +11,26 @@ const previewCategoryMeta = {
     system: { icon: 'settings', label: '系统配置', description: '界面、网络、部署与安全设置' }
 };
 
+// 分类按钮（图标 + 名称 + 计数）：配置预览与环境变量配置两个导航共用
+function renderCategoryNavButton(category, count, isActive, onClickExpr) {
+    return \`
+        <button
+            type="button"
+            class="preview-category-btn\${isActive ? ' active' : ''}"
+            onclick="\${onClickExpr}"
+            aria-pressed="\${isActive}"
+        >
+            <span class="ui-icon-label">\${uiIcon(previewCategoryMeta[category].icon)}\${previewCategoryMeta[category].label}</span>
+            <span class="preview-category-count">\${count}</span>
+        </button>
+    \`;
+}
+
+// 分类分组标题（图标 + 名称）：搜索结果分组标题共用
+function renderCategoryHeading(category) {
+    return \`<h3 class="ui-icon-label">\${uiIcon(previewCategoryMeta[category].icon)} \${previewCategoryMeta[category].label}</h3>\`;
+}
+
 const previewGroupDefinitions = {
     api: [
         { name: '访问认证', keys: ['TOKEN', 'ADMIN_TOKEN', 'FAVORITE_REQUIRE_ADMIN'] },
@@ -128,28 +148,9 @@ function renderPreviewNavigation() {
         </button>
     \`;
 
-    const categories = [
-        ...previewCategoryOrder.map(category => ({
-            key: category,
-            icon: previewCategoryMeta[category].icon,
-            label: previewCategoryMeta[category].label,
-            count: (previewState.categorizedVars[category] || []).length
-        }))
-    ];
-
-    navigation.innerHTML = overviewBtn + categories.map(category => {
-        const isActive = !previewState.query && previewState.activeCategory === category.key;
-        return \`
-            <button
-                type="button"
-                class="preview-category-btn\${isActive ? ' active' : ''}"
-                onclick="selectPreviewCategory('\${category.key}')"
-                aria-pressed="\${isActive}"
-            >
-                <span class="ui-icon-label">\${uiIcon(category.icon)}\${category.label}</span>
-                <span class="preview-category-count">\${category.count}</span>
-            </button>
-        \`;
+    navigation.innerHTML = overviewBtn + previewCategoryOrder.map(category => {
+        const isActive = !previewState.query && previewState.activeCategory === category;
+        return renderCategoryNavButton(category, (previewState.categorizedVars[category] || []).length, isActive, "selectPreviewCategory('" + category + "')");
     }).join('');
 }
 
@@ -249,7 +250,7 @@ function renderPreviewSearchResults(query) {
         html += \`
             <section class="preview-group preview-search-group">
                 <div class="preview-group-heading">
-                    <h3 class="ui-icon-label">\${uiIcon(previewCategoryMeta[category].icon)} \${previewCategoryMeta[category].label}</h3>
+                    \${renderCategoryHeading(category)}
                     <span>\${matches.length} 项</span>
                 </div>
                 <div class="preview-list">

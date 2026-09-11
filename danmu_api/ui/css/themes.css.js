@@ -1,6 +1,6 @@
 // language=CSS
 export const themesCssContent = /* css */ `
-/* 设计令牌与 ACG 七色主题 + 独立明暗切换 — 参照 Bangumi-syncer 设计系统 */
+/* 设计令牌与七色主题 + 独立明暗切换 — 参照 Bangumi-syncer 柔和圆角设计风格 */
 
 /* ============ 全局设计令牌 ============ */
 :root {
