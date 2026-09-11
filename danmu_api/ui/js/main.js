@@ -718,6 +718,7 @@ const DANMAKU_DICT = [
     '@Celestials316', '@dyphire', '@piaoyizy', '@xiaoQQya', '@liixing',
     '@goodcommunication', '@Mr-Quin', '@chason-zhao', '@DemoJameson',
     '@rinnein', '@Lampon', '@zcw199604', 'Mashiro', '@wade6716',
+    '@xlmc', '@mz289', '@sugarbliss',
     '请合理使用', '公益服务请适当调高缓存避免滥用',
     '有弹幕才有氛围~', '弹幕陪你看', 'LogVar可能会倒闭但绝对不会变质',
 ];

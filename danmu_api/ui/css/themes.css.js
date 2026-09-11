@@ -234,7 +234,7 @@ body[data-color-scheme="dark"] #bg-danmaku-layer span { opacity: 0.08 !important
     .env-section-header { align-items: stretch !important; }
     .env-section-header > div:first-child { min-width: 0; width: 100%; }
     .env-toolbar-actions { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-    .env-toolbar-actions .btn { flex: none; min-height: 44px; padding: 10px 8px; width: 100%; }
+    .env-toolbar-actions .btn { flex: none; min-height: 34px; padding: 6px 10px; width: 100%; }
     .theme-settings { align-items: stretch; flex-direction: column; }
     .theme-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
