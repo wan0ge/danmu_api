@@ -134,6 +134,7 @@ body::before {
     background: linear-gradient(90deg, transparent, var(--theme-accent-soft), transparent);
     animation: headerShimmer 4s linear infinite;
     pointer-events: none;
+    will-change: transform;
 }
 
 @keyframes headerShimmer {
@@ -148,6 +149,7 @@ body::before {
     pointer-events: none;
     font-weight: 500;
     animation: hdFloat linear both;
+    will-change: transform, opacity;
 }
 
 @keyframes hdFloat {
@@ -231,8 +233,7 @@ body::before {
     transition: box-shadow 0.2s ease;
     position: relative;
     z-index: 1;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
+    will-change: transform;
 }
 
 .update-badge:hover {
