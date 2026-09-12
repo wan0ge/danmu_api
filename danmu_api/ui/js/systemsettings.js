@@ -893,7 +893,7 @@ function renderValueInput(item) {
         container.innerHTML = \`
             <label>映射配置</label>
             <textarea id="map-bulk-value" rows="6" placeholder="原值->映射值;原值2->映射值2">\${escapeHtml(value || '')}</textarea>
-            <button type="button" class="btn btn-secondary" onclick="parseBulkMapItems()">解析并更新列表</button>
+            <button type="button" class="btn btn-secondary" onclick="parseBulkMapItems()">\${uiIcon('refresh-cw')} 解析并更新列表</button>
             <div class="map-container" id="map-container">
                 \${mapItems.map((item, index) => \`
                     <div class="map-item" data-index="\${index}">
@@ -910,8 +910,8 @@ function renderValueInput(item) {
                     <button type="button" class="btn btn-danger map-remove-btn" onclick="removeMapItem(this)">删除</button>
                 </div>
             </div>
-            <div style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between;">
-                <button type="button" class="btn btn-primary" onclick="addMapItem()">添加映射项</button>
+            <div style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <button type="button" class="btn btn-primary" onclick="addMapItem()">\${uiIcon('plus')} 添加映射项</button>
                 \${renderRecentDataButton('btn btn-primary')}
             </div>
             \${renderRecentDataPanel()}
@@ -974,9 +974,9 @@ function renderValueInput(item) {
             container.innerHTML = \`
                 <label>变量值</label>
                 <textarea id="text-value" placeholder="格式：剧名:秒 或 剧名/S01:秒 或 剧名@来源:秒 或 剧名/S01/E01@来源%:秒" rows="\${rows}" class="text-monospace">\${value}</textarea>
-                <div style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                     <button type="button" class="btn btn-primary btn-sm" id="offset-rule-toggle" onclick="toggleOffsetRulePanel()">
-                        添加规则
+                        \${uiIcon('plus')} 添加规则
                     </button>
                     \${renderRecentDataButton()}
                 </div>
@@ -1087,9 +1087,9 @@ function renderValueInput(item) {
             container.innerHTML = \`
                 <label>变量值</label>
                 <textarea id="text-value" placeholder="格式：副源 -> 主源 | 路由规则 或 副源 × 主源" rows="\${rows}" class="text-monospace">\${value || ''}</textarea>
-                <div style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                     <button type="button" class="btn btn-primary btn-sm" id="merge-rule-toggle" onclick="toggleMergeRulePanel()">
-                        添加规则
+                        \${uiIcon('plus')} 添加规则
                     </button>
                     \${renderRecentDataButton()}
                 </div>
