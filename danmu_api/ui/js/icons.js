@@ -54,6 +54,8 @@ const UI_ICON_PATHS = {
     'chevron-down': '<path d="M6 9l6 6 6-6"/>',
     // 向右箭头：总览卡片进入指示
     'chevron-right': '<path d="M9 18l6-6-6-6"/>',
+    // 向左箭头：返回上一级
+    'chevron-left': '<path d="M15 18l-6-6 6-6"/>',
 
     // ===== 导航与分类 =====
     // 链接：API 配置分类、开启合并模式、被合并源数量徽标

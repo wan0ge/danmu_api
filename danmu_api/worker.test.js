@@ -1046,7 +1046,8 @@ test('worker.js API endpoints', async (t) => {
       assert.match(apitestJsContent, /最近刷新时间：/);
       assert.doesNotMatch(systemSettingsJsContent, /switchCategory\('favorite'\)/);
       assert.match(systemSettingsJsContent, /const isMergeSourcePairs = currentKey === 'MERGE_SOURCE_PAIRS'/);
-      assert.match(systemSettingsJsContent, /preventDuplicateSources && selectedSourceTokens\.has\(value\)/);
+      // 合并模式只禁止同一合并组内重复，已选源需保持可选取才能组合成合并组
+      assert.match(systemSettingsJsContent, /if \(stagingTokens\.has\(value\)\) \{\s*shouldDisable = true;/);
       assert.match(systemSettingsJsContent, /String\(element\.dataset\.value \|\| ''\)\.split\('&'\)/);
       assert.doesNotThrow(() => new Function(apitestJsContent));
       assert.doesNotThrow(() => new Function(systemSettingsJsContent));

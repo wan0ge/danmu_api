@@ -2415,7 +2415,9 @@ body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
     color: var(--theme-muted);
     transition: all 0.22s var(--app-ease-smooth);
     margin-bottom: 14px;
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .btn-back:hover {
