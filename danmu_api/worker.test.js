@@ -33,6 +33,7 @@ import { EdgeoneHandler } from "./configs/handlers/edgeone-handler.js";
 import { HuggingfaceHandler } from "./configs/handlers/huggingface-handler.js";
 import { HandlerFactory } from "./configs/handlers/handler-factory.js";
 import { Globals } from "./configs/globals.js";
+import { Envs } from "./configs/envs.js";
 import { addAnime, addEpisode, getSearchCache, hasSeasonSpecificPreference, isSearchCacheValid, setSearchCache } from "./utils/cache-util.js";
 import { addFavorite, listFavorites, loadFavorites, removeFavorite, resolveFavoriteForKeyword, saveFavorites } from './utils/favorite-util.js';
 import { candidateMatchesMappingQualifiers, candidateMatchesMappingTitle, parseAutoMatchMappingRules, resolveAutoMatchMapping } from './utils/auto-match-mapping-util.js';
@@ -1223,6 +1224,46 @@ test('worker.js API endpoints', async (t) => {
       makeResult('bangumi', '19242', ['夺还篇']),
     ], '检索词');
     assert.equal(crossSite.length, 2, `Expected crossSite.length === 2, but got ${crossSite.length}`);
+  });
+
+  await t.test('TITLE_NOISE_FILTER 默认规则为合法正则，且文档默认值与其一致', async () => {
+    const savedEnv = Envs.env;
+    const savedSystemEnv = process.env.TITLE_NOISE_FILTER;
+    try {
+      // 未设置该变量时应回退到内置默认规则，而不是因默认规则非法而返回 null（禁用整个清理）
+      Envs.env = {};
+      delete process.env.TITLE_NOISE_FILTER;
+      const pattern = Envs.resolveTitleNoiseFilter();
+      assert.ok(pattern instanceof RegExp, '未设置 TITLE_NOISE_FILTER 时应返回可用的默认正则');
+
+      // 半角/全角圆括号与方括号均需命中
+      assert.strictEqual('百花杀（真彩）'.replace(pattern, '').trim(), '百花杀');
+      assert.strictEqual('百花杀(真彩)'.replace(pattern, '').trim(), '百花杀');
+      assert.strictEqual('百花杀[真彩]'.replace(pattern, '').trim(), '百花杀');
+      assert.strictEqual('百花杀［真彩］'.replace(pattern, '').trim(), '百花杀');
+
+      // 原版规则不含年份分支，年份不参与清理；无杂音词时保持原样
+      assert.strictEqual('吞噬星空（2024）'.replace(pattern, '').trim(), '吞噬星空（2024）');
+      assert.strictEqual('百花杀'.replace(pattern, '').trim(), '百花杀');
+
+      // 对外记录的默认值须与代码默认值一致，且可直接编译
+      assert.strictEqual(Envs.accessedEnvVars.get('TITLE_NOISE_FILTER'), pattern.source);
+      assert.doesNotThrow(() => new RegExp(pattern.source, 'gi'));
+
+      // README 与默认配置文件中的默认值必须与代码默认值完全一致，否则用户照抄会得到非法正则
+      for (const docUrl of [new URL('../README.md', import.meta.url), new URL('../config/.env.example', import.meta.url)]) {
+        const text = await fs.readFile(docUrl, 'utf8');
+        assert.ok(text.includes(pattern.source), `${docUrl.pathname} 中的默认值应与代码默认值一致`);
+      }
+
+      // 显式设为空值表示禁用
+      Envs.env = { TITLE_NOISE_FILTER: '' };
+      assert.strictEqual(Envs.resolveTitleNoiseFilter(), null);
+    } finally {
+      Envs.env = savedEnv;
+      if (savedSystemEnv === undefined) delete process.env.TITLE_NOISE_FILTER;
+      else process.env.TITLE_NOISE_FILTER = savedSystemEnv;
+    }
   });
 
   // await t.test('GET /api/v2/comment/:id?format=json&duration=true should return segment duration and reuse comment cache', async () => {
