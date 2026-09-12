@@ -887,6 +887,7 @@ body[data-theme] .favorite-schedule-btn:disabled:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-top: 14px;
     margin-bottom: 12px;
     flex-wrap: wrap;
     gap: 8px;

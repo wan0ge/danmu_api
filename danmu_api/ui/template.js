@@ -292,9 +292,9 @@ export const HTML_TEMPLATE = /* html */ `
             <div class="section" id="request-records-section">
                 <h2>请求记录</h2>
                 <div class="log-controls">
-                    <div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
                         <button class="btn btn-primary" id="refresh-request-records">${renderIcon('refresh-cw')} 刷新记录</button>
-                        <span id="total-requests-today" style="color: #ff5722; margin-left: 15px; vertical-align: middle; font-size: 1.2em; font-weight: bold;"></span>
+                        <span id="total-requests-today" style="color: #ff5722; font-size: 1.2em; font-weight: bold;"></span>
                     </div>
                     <span style="color: #666;">云服务部署需要配置redis</span>
                 </div>
