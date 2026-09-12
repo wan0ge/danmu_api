@@ -216,8 +216,6 @@ body::before {
     font-size: 11px;
     position: relative;
     z-index: 1;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
 }
 
 .update-badge {

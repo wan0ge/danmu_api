@@ -161,7 +161,6 @@ body[data-color-scheme="dark"] .offset-input:focus {
     box-shadow: 0 0 0 3px rgba(var(--app-primary-rgb), 0.12);
 }
 body[data-color-scheme="dark"] .logo { background: #3a3d48; }
-body[data-color-scheme="dark"] .update-badge { background: var(--theme-accent); color: #fff; }
 
 /* ============ 通用主题变量覆盖 ============ */
 body[data-theme] .container { background: var(--theme-container-bg); color: var(--theme-text); }
