@@ -50,7 +50,7 @@ const UI_ICON_PATHS = {
     check: '<path d="M20 6L9 17l-5-5"/>',
     // 叉：映射「落单」状态
     x: '<path d="M18 6L6 18M6 6l12 12"/>',
-    // 向上箭头：数字步进器增大
+    // 向上箭头：数字步进器增大、收起规则面板
     'chevron-up': '<path d="M18 15l-6-6-6 6"/>',
     // 向下箭头：数字步进器减小
     'chevron-down': '<path d="M6 9l6 6 6-6"/>',

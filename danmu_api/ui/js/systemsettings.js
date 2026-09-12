@@ -1408,7 +1408,7 @@ function toggleOffsetRulePanel() {
         const isHidden = getComputedStyle(panel).display === 'none';
         panel.style.display = isHidden ? 'block' : 'none';
         const btn = document.getElementById('offset-rule-toggle');
-        if (btn) btn.textContent = isHidden ? '收起' : '添加规则';
+        if (btn) btn.innerHTML = isHidden ? uiIcon('chevron-up') + ' 收起' : uiIcon('plus') + ' 添加规则';
     }
 }
 
@@ -1510,7 +1510,7 @@ function toggleMergeRulePanel() {
         const isHidden = getComputedStyle(panel).display === 'none';
         panel.style.display = isHidden ? 'block' : 'none';
         const btn = document.getElementById('merge-rule-toggle');
-        if (btn) btn.textContent = isHidden ? '收起' : '添加规则';
+        if (btn) btn.innerHTML = isHidden ? uiIcon('chevron-up') + ' 收起' : uiIcon('plus') + ' 添加规则';
     }
 }
 
