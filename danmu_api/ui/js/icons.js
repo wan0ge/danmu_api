@@ -24,7 +24,7 @@ const UI_ICON_PATHS = {
     'check-circle': '<circle cx="12" cy="12" r="9"/><path d="M8.4 12.4l2.5 2.5 4.7-4.9"/>',
     // 失败圆：Cookie 失效、二维码过期、连通性测试失败
     'x-circle': '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
-    // 时钟：等待扫码、正在生成二维码
+    // 时钟：等待扫码、正在生成二维码、请求记录时间戳
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.2 1.9"/>',
 
     // ===== 通用操作 =====

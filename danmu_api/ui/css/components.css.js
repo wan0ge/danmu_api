@@ -1894,11 +1894,6 @@ body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
     padding-bottom: 0;
 }
 
-.record-timestamp::before {
-    content: '\\1F550';
-    font-size: 14px;
-}
-
 .record-params {
     background: var(--theme-panel-strong);
     border-radius: var(--app-radius-card-sm);
