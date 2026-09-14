@@ -215,6 +215,16 @@ export function normalizeSpaces(str) {
 }
 
 /**
+ * 标题比对归一化（繁转简并清理空格与修饰性符号）
+ * @param {string} str - 输入字符串
+ * @returns {string} 归一化后的字符串
+ */
+export function normalizeTitleForMatch(str) {
+  if (!str) return '';
+  return normalizeSpaces(simplized(String(str)));
+}
+
+/**
  * 严格标题匹配函数
  * @param {string} title - 动漫标题
  * @param {string} query - 搜索关键词
