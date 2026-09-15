@@ -461,6 +461,15 @@ export function extractSeasonNumberFromAnimeTitle(animeTitle) {
     };
   }
 
+  // 6) 罗马数字季号（如"某某Ⅲ"、"某某 Ⅳ"），仅识别 Unicode 罗马数字字符（Ⅰ-Ⅻ）
+  const romanMatch = titleWithoutYear.match(/[\u2160-\u216B]/);
+  if (romanMatch) {
+    return {
+      season: romanMatch[0].codePointAt(0) - 0x2160 + 1,
+      baseTitle: titleWithoutYear.replace(romanMatch[0], "").trim(),
+    };
+  }
+
   return { season: null, baseTitle: titleWithoutYear };
 }
 

@@ -13,7 +13,7 @@ import { Request as NodeFetchRequest } from 'node-fetch';
 import { handleRequest } from './worker.js';
 import { extractTitleSeasonEpisode, getBangumi, getComment, getCommentByUrl, getSegmentComment, matchAnime, searchAnime, buildSearchAnimeUrl, matchSeason, matchAniAndEp, fallbackMatchAniAndEp } from "./apis/dandan-api.js";
 import { stripLinkOffset, applyOffset } from "./utils/offset-util.js";
-import { normalizeTitleForMatch } from "./utils/common-util.js";
+import { extractSeasonNumberFromAnimeTitle, normalizeTitleForMatch } from "./utils/common-util.js";
 import { handleFavoriteRefresh } from './apis/favorite-api.js';
 import { handleClearCache } from './apis/system-api.js';
 import { getRedisCaches, getRedisKey, pingRedis, setRedisKey, setRedisKeyWithExpiry, updateRedisCaches } from "./utils/redis-util.js";
@@ -3082,6 +3082,29 @@ test('fallback matching prefers the candidate of the target season', async () =>
   // 无同季候选或未指定季号时保持原有取值顺序
   assert.equal(await matchFallback([secondSeason], 3), 2001);
   assert.equal(await matchFallback([secondSeason, thirdSeason], null), 2001);
+});
+
+test('season extraction recognizes season markers', () => {
+  // 尾部阿拉伯数字、中文数字、S/Season/Part、罗马数字均识别为季号
+  assert.equal(extractSeasonNumberFromAnimeTitle('赛马娘2').season, 2);
+  assert.equal(extractSeasonNumberFromAnimeTitle('赛马娘 2').season, 2);
+  assert.equal(extractSeasonNumberFromAnimeTitle('孤独摇滚 12').season, 12);
+  assert.equal(extractSeasonNumberFromAnimeTitle('为美好的世界献上祝福3').season, 3);
+  assert.equal(extractSeasonNumberFromAnimeTitle('辉夜大小姐想让我告白 二').season, 2);
+  assert.equal(extractSeasonNumberFromAnimeTitle('咒术回战 S2').season, 2);
+  assert.equal(extractSeasonNumberFromAnimeTitle('咒术回战 Part 2').season, 2);
+  assert.equal(extractSeasonNumberFromAnimeTitle('无职转生 第三季').season, 3);
+  assert.equal(extractSeasonNumberFromAnimeTitle('無職転生Ⅲ ～異世界行ったら本気だす～').season, 3);
+  assert.equal(extractSeasonNumberFromAnimeTitle('无职转生Ⅲ ～到了异世界就拿出真本事～').season, 3);
+  assert.equal(extractSeasonNumberFromAnimeTitle('OVERLORD Ⅳ').season, 4);
+  assert.equal(extractSeasonNumberFromAnimeTitle('约会大作战Ⅴ').season, 5);
+
+  // 拉丁字母形式的罗马数字与英文缩写无法区分，不参与季号识别
+  assert.equal(extractSeasonNumberFromAnimeTitle('机动战士V高达').season, null);
+  assert.equal(extractSeasonNumberFromAnimeTitle('MAD MAX').season, null);
+
+  // 季号剥离后余下部分作为 baseTitle
+  assert.equal(extractSeasonNumberFromAnimeTitle('無職転生Ⅲ ～異世界行ったら本気だす～').baseTitle, '無職転生異世界行ったら本気だす');
 });
 
 // // 测试 Bangumi Data 数据下载时机（ensureBangumiDataReady）、配置变更触发下载（syncBangumiDataLifecycleOnConfigChange）
