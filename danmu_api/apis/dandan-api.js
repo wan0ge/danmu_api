@@ -1881,7 +1881,7 @@ async function executeMatchAttempt({ req, title, season, episode, year, preferre
   return { resAnime: null, resEpisode: null, spilloverMatched: false, title, season, episode };
 }
 
-function normalizeMatchTitle(title) {
+function prepareQueryTitle(title) {
   let normalized = String(title || '').trim();
   if (globals.animeTitleSimplified) normalized = simplized(normalized);
   if (globals.titleNoiseFilter) normalized = normalized.replace(globals.titleNoiseFilter, '').trim();
@@ -1891,7 +1891,7 @@ function normalizeMatchTitle(title) {
 function resolveLegacyMatchTitle(title) {
   const mapped = globals.titleMappingTable instanceof Map ? globals.titleMappingTable.get(title) : null;
   if (mapped) log("info", `[system] [match] Title mapped from original: ${title} to: ${mapped}`);
-  return normalizeMatchTitle(mapped || title);
+  return prepareQueryTitle(mapped || title);
 }
 
 function findSeasonPreferenceTitle(titles, season) {
@@ -1941,7 +1941,7 @@ export async function matchAnime(url, req, clientIp) {
     log("info", `[system] [match] Parsed cleanFileName: ${cleanFileName}, preferredPlatform: ${preferredPlatform}`);
 
     const parsed = await extractTitleSeasonEpisode(cleanFileName);
-    const originalTitle = normalizeMatchTitle(parsed.title);
+    const originalTitle = prepareQueryTitle(parsed.title);
     const originalSeason = parsed.season;
     const originalEpisode = parsed.episode;
     const originalYear = parsed.year;
@@ -1967,7 +1967,7 @@ export async function matchAnime(url, req, clientIp) {
     let mappingApplied = false;
 
     if (mapping) {
-      const mappedTitle = normalizeMatchTitle(mapping.targetTitle);
+      const mappedTitle = prepareQueryTitle(mapping.targetTitle);
       const mappedPlatform = mapping.targetPlatform || preferredPlatform;
       log('info', `[system] [auto-match-mapping] ${originalTitle} S${originalSeason}E${originalEpisode} -> ${mappedTitle} S${mapping.targetSeason}E${mapping.targetEpisode}${mapping.targetPlatform ? ` @${mapping.targetPlatform}` : ''}`);
       attempt = await executeMatchAttempt({
