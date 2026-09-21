@@ -84,7 +84,9 @@ export class NodeHandler extends BaseHandler {
    * 设置环境变量并重新初始化全局配置
    */
   async setEnv(key, value) {
-    log("info", '[system] [server] Setting environment variable:', key, '=', value);
+    // sensitiveKeys 为按 encrypt 读取的凭据类变量，其值仅在运行期使用，不在日志以明文呈现
+    const isSensitive = Envs.sensitiveKeys.has(key);
+    log("info", '[system] [server] Setting environment variable:', key, '=', isSensitive ? '***' : value);
 
     try {
       // 更新配置文件

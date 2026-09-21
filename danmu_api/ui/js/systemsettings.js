@@ -2646,8 +2646,17 @@ document.getElementById('env-form').addEventListener('submit', async function(e)
         itemData = { key, value, description, type };
     }
 
+    // 掩码值（预览星号）表示凭据未改动，跳过写入以免用星号覆盖服务端已存真实值
+    const isMasked = /^[*]+$/.test(value);
+
     // 调用API更新环境变量 - 先尝试set接口，失败则调用add接口
     try {
+        if (isMasked) {
+            // 凭据值未变更，保留服务端已存值，仅关闭编辑框
+            addLog(\`配置项 \${key} 未变更，已保留原值\`, 'info');
+            closeModal();
+            return;
+        }
         // 首先尝试使用set接口更新
         let response = await fetch(buildApiUrl('/api/env/set'), {
             method: 'POST',
