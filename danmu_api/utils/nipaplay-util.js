@@ -15,7 +15,7 @@ const _appIdFrag = ['wBQ0gL26', 'oPlbCiLn', 'f37+sQ=='];
 const NIPAPLAY_APP_ID_CIPHERTEXT = _appIdFrag.join('');
 
 // 片段，运行期重组为完整值（禁止滥用）。
-const _secretFrag = ['9CB0Qo6tW1', 'CfUDx3jCtV', 'rUat/EMK+x', 'voco1Y2MF8', 'YQUuM14JDN', '1/wWqIRHP', 'H/buF'];
+const _secretFrag = ['Q+DylC7xo2', 'SY9e19JjGF', 'zKbHoeKKHa', 'TQaedsxi0i', 'ZGcuM14JDN', '1/wWqIRHP', 'H/buF'];
 const NIPAPLAY_APP_SECRET_CIPHERTEXT = _secretFrag.join('');
 
 export const NIPAPLAY_APP_ID = aesDecryptBase64(NIPAPLAY_APP_ID_CIPHERTEXT, NIPAPLAY_AES_KEY);
