@@ -50,6 +50,8 @@ import { convertToDanmakuJson, handleDanmusLike, splitBlockedWords, parseBlocked
 import { Segment, SegmentListResponse } from "./models/dandan-model.js"
 import { initBangumiData, searchBangumiData, clearBangumiDataCache, dedupeBangumiSearchResults } from "./utils/bangumi-data-util.js";
 import { parseNipaplayRelatedLinks, resolveNipaplayLink, applyShiftToDanmu, fetchNipaplayDanmaku, verifyNipaplayAccount } from "./utils/nipaplay-util.js";
+import { httpPatch } from "./utils/http-util.js";
+import DandanSource from "./sources/dandan.js";
 import { extractFongmiSeasonNumber, scoreFongmiEpisodeMatch } from "./apis/clients/fongmi-api.js";
 import { localDanmuJsContent } from './ui/js/localdanmu.js';
 import { buildLocalDanmuResourceKey, groupLocalDanmuResources, parseLocalDanmu, normalizeLocalSeason } from './utils/local-danmu-parser.js';
@@ -3300,6 +3302,26 @@ test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
       Globals.envs.dandanplayPassword = savedPassword;
     }
   });
+});
+
+test('httpPatch 的 allow_redirects 与 GET/POST 行为一致', async () => {
+  let seenOptions = null;
+  const capture = async (url, options) => { seenOptions = options; return mockJsonResponse({}, url); };
+
+  await withMockFetch(capture, () => httpPatch('http://example.com/a', 'body', { allow_redirects: false }));
+  assert.strictEqual(seenOptions.redirect, 'manual', '禁止重定向时使用 manual');
+
+  await withMockFetch(capture, () => httpPatch('http://example.com/b', 'body', {}));
+  assert.strictEqual(seenOptions.redirect, 'follow', '默认跟随重定向');
+});
+
+test('dandan formatComments 按实时拉取标记区分处理', () => {
+  const dandan = new DandanSource();
+  const realtime = { cid: 1, p: '12.34,1,25,16777215,0', m: 'x', isRealTimePulled: true };
+  assert.strictEqual(dandan.formatComments([realtime])[0], realtime, '实时拉取弹幕原样返回');
+
+  const native = { cid: 1, p: '12.34,1,25,aFFFFFF,0', m: 'y' };
+  assert.strictEqual(dandan.formatComments([native])[0].p, '12.34,1,25,a16777215,0', '原生弹幕执行颜色转换');
 });
 
 test('fongmi-api season aware scoring', () => {
