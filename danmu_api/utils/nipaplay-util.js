@@ -1,5 +1,6 @@
 import { log } from './log-util.js';
 import { httpGet, httpPost } from './http-util.js';
+import { applyOffset } from './offset-util.js';
 import { globals } from '../configs/globals.js';
 
 // NipaPlay 中转弹弹play服务端（官方弹弹play 网关）：主线路为香港域名，备用线路为国内 IP 直连。
@@ -216,20 +217,12 @@ export function resolveNipaplayLink(url) {
   return { source: platform, realId: url };
 }
 
-// 对已格式化的弹幕应用弹弹302关联链接附带的时间偏移：校正 p 的首字段（时间）与 t 字段，
-// 并标记为实时拉取，使源的 formatComments 与去重阶段按实时拉取弹幕处理。
+// 对已格式化的弹幕应用弹弹302关联链接附带的时间偏移：复用通用偏移工具校正各时间字段（含非负钳制），
+// 并标记为实时拉取，使 dandan 源的 formatComments 跳过 Dandan 专属转换。
 export function applyShiftToDanmu(danmu, shift = 0) {
   if (!danmu || typeof danmu !== 'object') return danmu;
-  const next = { ...danmu };
-  if (typeof next.p === 'string') {
-    const parts = next.p.split(',');
-    const time = parseFloat(parts[0]);
-    if (!isNaN(time)) parts[0] = (time + shift).toFixed(2);
-    next.p = parts.join(',');
-  }
-  if (typeof next.t === 'number') next.t += shift;
-  next.isRealTimePulled = true;
-  return next;
+  const [shifted] = applyOffset([danmu], shift);
+  return { ...shifted, isRealTimePulled: true };
 }
 
 // 弹弹play原生弹幕地址由 302 的 Location 给出，跟随该地址即得弹弹play 原生弹幕

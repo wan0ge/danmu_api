@@ -3278,6 +3278,13 @@ test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
   assert.strictEqual(src.p, '12.34,1,25,16777215,0', '原对象未被修改');
   assert.strictEqual(applyShiftToDanmu(null, 5), null, '空对象直接返回');
 
+  // 负偏移使时间小于 0 时按通用偏移工具的行为钳到 0，避免产出负时间戳
+  const negative = { p: '5.00,1,25,16777215,0', t: 5 };
+  const clamped = applyShiftToDanmu(negative, -20);
+  assert.strictEqual(clamped.p, '0.00,1,25,16777215,0', '负偏移导致的负时间钳到 0');
+  assert.strictEqual(clamped.t, 0, 't 同步钳到 0');
+  assert.strictEqual(clamped.isRealTimePulled, true, '钳制后仍标记为实时拉取');
+
   await t.test('账号或密码缺失时不请求 NipaPlay 中转弹弹play服务端，并提示先填写', async () => {
     const savedAccount = Globals.envs.dandanplayAccount;
     const savedPassword = Globals.envs.dandanplayPassword;
