@@ -2994,6 +2994,22 @@ function showBilibiliCookieSaveHint(text) {
 }
 
 /* ========================================
+   连通性测试取值
+   ======================================== */
+
+// 读取配置列表中某项的当前值，供连通性测试随请求提交；掩码（当前访问无权限读取明文）返回空串，由服务端回退到已保存配置
+function readLocalEnvValue(key) {
+    for (const items of Object.values(envVariables)) {
+        const item = items.find(entry => entry.key === key);
+        if (item && typeof item.value === 'string') {
+            const value = item.value.trim();
+            return /^[*]+$/.test(value) ? '' : value;
+        }
+    }
+    return '';
+}
+
+/* ========================================
    AI API Key 连通性测试功能
    ======================================== */
 async function verifyAiConnection() {
@@ -3018,14 +3034,19 @@ async function verifyAiConnection() {
     
     statusEl.innerHTML = \`<span class="ai-status-icon">\${uiIcon('search')}</span><span class="ai-status-text">正在测试连通性...</span>\`;
     
-    // 检查是否为脱敏后的 *...* 
+    // 地址与模型始终随请求提交，避免云部署下因未重新部署而取不到新配置；密钥为脱敏值时省略该字段，由服务端使用已保存的密钥
     const isMasked = /^[*]+$/.test(apiKey);
+    const payload = {
+        aiBaseUrl: readLocalEnvValue('AI_BASE_URL'),
+        aiModel: readLocalEnvValue('AI_MODEL')
+    };
+    if (!isMasked) payload.aiApiKey = apiKey;
     
     try {
         const response = await fetch(buildApiUrl('/api/ai/verify', true), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(isMasked ? {} : { 'aiApiKey': apiKey })
+            body: JSON.stringify(payload)
         });
         
         const result = await response.json();
@@ -3072,14 +3093,16 @@ async function verifyDandanplayConnection() {
 
     statusEl.innerHTML = \`<span class="dandanplay-status-icon">\${uiIcon('search')}</span><span class="dandanplay-status-text">正在测试连通性...</span>\`;
 
-    // 密码为脱敏值时提交空配置，由服务端使用已保存的账号与密码验证
+    // 账号始终随请求提交，避免云部署下因未重新部署而取不到新账号；密码为脱敏值时省略该字段，由服务端使用已保存的密码
     const isMasked = /^[*]+$/.test(password);
+    const payload = { dandanplayAccount: readLocalEnvValue('DANDANPLAY_ACCOUNT') };
+    if (!isMasked) payload.dandanplayPassword = password;
 
     try {
         const response = await fetch(buildApiUrl('/api/nipaplay/verify', true), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(isMasked ? {} : { 'dandanplayPassword': password })
+            body: JSON.stringify(payload)
         });
 
         const result = await response.json();

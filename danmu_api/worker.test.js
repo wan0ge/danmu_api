@@ -58,6 +58,7 @@ import { buildLocalDanmuResourceKey, groupLocalDanmuResources, parseLocalDanmu, 
 import { handleLocalDanmuUpload, handleLocalDanmuList, handleLocalDanmuDelete, handleLocalDanmuGet, handleLocalDanmuUpdate } from './apis/local-danmu-api.js';
 import { saveLocalDanmu, getLocalDanmu, listLocalDanmu, findLocalDanmu, removeLocalDanmu, localDanmuFileName } from './utils/local-danmu-store.js';
 import { handleConfig } from './apis/system-api.js';
+import { handleAiVerify, handleDandanplayVerify } from './apis/env-api.js';
 
 async function readRequestBody(req) {
   const chunks = [];
@@ -1060,6 +1061,87 @@ test('worker.js API endpoints', async (t) => {
       assert.doesNotThrow(() => new Function(systemSettingsJsContent));
       assert.doesNotThrow(() => new Function(previewJsContent));
       assert.match(previewJsContent, /AUTO_MATCH_MAPPING_TABLE/);
+      // 连通性测试以表单值随请求提交，避免云部署下未重新部署时取不到新配置
+      assert.match(systemSettingsJsContent, /function readLocalEnvValue\(key\)/);
+      assert.match(systemSettingsJsContent, /aiBaseUrl: readLocalEnvValue\('AI_BASE_URL'\)/);
+      assert.match(systemSettingsJsContent, /aiModel: readLocalEnvValue\('AI_MODEL'\)/);
+      assert.match(systemSettingsJsContent, /payload\.aiApiKey = apiKey/);
+      assert.match(systemSettingsJsContent, /dandanplayAccount: readLocalEnvValue\('DANDANPLAY_ACCOUNT'\)/);
+      assert.match(systemSettingsJsContent, /payload\.dandanplayPassword = password/);
+      assert.doesNotMatch(systemSettingsJsContent, /JSON\.stringify\(isMasked \? \{\} : \{ 'aiApiKey': apiKey \}\)/);
+      assert.doesNotMatch(systemSettingsJsContent, /JSON\.stringify\(isMasked \? \{\} : \{ 'dandanplayPassword': password \}\)/);
+    });
+
+    await t.test('弹弹play连通性验证使用请求体中的账号与密码', async () => {
+      const loginRequests = [];
+      const originalAccount = Globals.envs.dandanplayAccount;
+      const originalPassword = Globals.envs.dandanplayPassword;
+
+      try {
+        // 运行期配置与请求体不同，用于验证请求体优先
+        Globals.envs.dandanplayAccount = 'runtime@example.com';
+        Globals.envs.dandanplayPassword = 'runtime-password';
+
+        await withMockFetch(async (url, options) => {
+          loginRequests.push({ url: String(url), body: JSON.parse(options.body) });
+          return mockJsonResponse({
+            success: true,
+            token: 'mock-token',
+            tokenExpireTime: '2099-01-01T00:00:00Z',
+            screenName: '请求体账号'
+          });
+        }, async () => {
+          const response = await handleDandanplayVerify({
+            json: async () => ({ dandanplayAccount: 'body@example.com', dandanplayPassword: 'body-password' })
+          });
+          const body = await parseResponse(response);
+
+          assert.equal(body.ok, true);
+          assert.match(body.message, /请求体账号/);
+          assert.equal(loginRequests.length, 1);
+          assert.match(loginRequests[0].url, /\/api\/v2\/login$/);
+          assert.equal(loginRequests[0].body.userName, 'body@example.com');
+          assert.equal(loginRequests[0].body.password, 'body-password');
+        });
+      } finally {
+        Globals.envs.dandanplayAccount = originalAccount;
+        Globals.envs.dandanplayPassword = originalPassword;
+      }
+    });
+
+    await t.test('AI 连通性验证使用请求体中的密钥与地址模型', async () => {
+      const originalVerify = AIClient.prototype.verify;
+      const originalApiKey = Globals.envs.aiApiKey;
+      const originalBaseUrl = Globals.envs.aiBaseUrl;
+      const originalModel = Globals.envs.aiModel;
+      let captured = null;
+
+      AIClient.prototype.verify = async function () {
+        captured = { apiKey: this.apiKey, baseURL: this.baseURL, model: this.model };
+        return { ok: true };
+      };
+
+      try {
+        // 运行期配置与请求体不同，用于验证请求体优先
+        Globals.envs.aiApiKey = 'runtime-key';
+        Globals.envs.aiBaseUrl = 'https://runtime.example/v1';
+        Globals.envs.aiModel = 'runtime-model';
+
+        const response = await handleAiVerify({
+          json: async () => ({ aiApiKey: 'body-key', aiBaseUrl: 'https://body.example/v1', aiModel: 'body-model' })
+        });
+        const body = await parseResponse(response);
+
+        assert.equal(body.ok, true);
+        assert.equal(captured.apiKey, 'body-key');
+        assert.equal(captured.baseURL, 'https://body.example/v1');
+        assert.equal(captured.model, 'body-model');
+      } finally {
+        AIClient.prototype.verify = originalVerify;
+        Globals.envs.aiApiKey = originalApiKey;
+        Globals.envs.aiBaseUrl = originalBaseUrl;
+        Globals.envs.aiModel = originalModel;
+      }
     });
 
   await t.test('handleClearCache clears only the selected cache items', async t => {
