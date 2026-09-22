@@ -1,5 +1,6 @@
 import BaseHandler from "./base-handler.js";
 import { log } from "../../utils/log-util.js";
+import { Envs } from "../envs.js";
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -64,6 +65,10 @@ export class NodeHandler extends BaseHandler {
         }
 
         fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
+        // 同步 .env 原始解析结果，使绕过 dotenv 截断读取的变量即时取到刚写入的值
+        if (Envs.rawEnvValues) {
+          Envs.rawEnvValues = Envs.parseRawEnvText(lines.join('\n'));
+        }
         log("info", `[system] [server] Updated ${key} in .env`);
         updated = true;
       }
@@ -127,6 +132,10 @@ export class NodeHandler extends BaseHandler {
         });
 
         fs.writeFileSync(envPath, filteredLines.join('\n'), 'utf8');
+        // 同步 .env 原始解析结果，使被删除的变量不残留于原始值中
+        if (Envs.rawEnvValues) {
+          Envs.rawEnvValues = Envs.parseRawEnvText(filteredLines.join('\n'));
+        }
         log("info", `[system] [server] Deleted ${key} from .env`);
         deleted = true;
       }
