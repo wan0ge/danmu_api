@@ -65,7 +65,7 @@ export const HTML_TEMPLATE = /* html */ `
         <div class="header">
             <div class="header-left">
                 <div class="logo-title-container">
-                    <div class="logo"><img src="https://i.mji.rip/2025/09/27/eedc7b701c0fa5c1f7c175b22f441ad9.jpeg" width="500"/></div>
+                    <div class="logo"><img src="https://i.mji.rip/2025/09/27/eedc7b701c0fa5c1f7c175b22f441ad9.jpeg" alt="" width="500"/></div>
                     <h1>LogVar弹幕API</h1>
                 </div>
                 <div class="version-info">
