@@ -571,10 +571,7 @@ export const HTML_TEMPLATE = /* html */ `
         <a href="https://t.me/ddjdd_bot" target="_blank" class="footer-bar-link">💬 TG MSG ROBOT</a>
         <a href="https://t.me/logvar_danmu_group" target="_blank" class="footer-bar-link">👥 TG GROUP</a>
         <a href="https://t.me/logvar_danmu_channel" target="_blank" class="footer-bar-link">📢 TG CHANNEL</a>
-        <a href="https://github.com/huangxd-/danmu_api" target="_blank" class="footer-bar-link github-link">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg" alt="GitHub" class="github-icon">
-            GitHub Repo
-        </a>
+        <a href="https://github.com/huangxd-/danmu_api" target="_blank" class="footer-bar-link">${renderIcon('github', 'ui-icon github-icon')} GitHub Repo</a>
     </nav>
 
     <script>
