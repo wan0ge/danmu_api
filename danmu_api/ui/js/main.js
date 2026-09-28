@@ -706,7 +706,7 @@ const DANMAKU_DICT = [
     '@huangxd-', '@wan0ge', '@woleigedouer', '@Wo254992', '@lilixu3','@Celestials316', '@dyphire', '@piaoyizy', '@xiaoQQya', '@liixing','@goodcommunication', '@Mr-Quin', '@chason-zhao', '@DemoJameson','@rinnein', '@Lampon', '@zcw199604', '@Mashiro000', '@wade6716','@xlmc', '@mz289', '@sugarbliss', '@Backsoon0',
 ];
 
-// 共享弹幕发射间隔 0.5~1.5s
+// 背景弹幕发射间隔 0.5~1.5s
 const DANMAKU_INTERVAL_MS = 500;
 
 // ===== 背景弹幕系统 =====
