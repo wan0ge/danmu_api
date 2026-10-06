@@ -41,6 +41,7 @@ import { Envs } from "./configs/envs.js";
 import { addAnime, addEpisode, findUrlById, getEpisodeIdFloor, getSearchCache, hasSeasonSpecificPreference, isSearchCacheValid, setSearchCache } from "./utils/cache-util.js";
 import { addFavorite, listFavorites, loadFavorites, removeFavorite, resolveFavoriteForKeyword, saveFavorites } from './utils/favorite-util.js';
 import { candidateMatchesMappingQualifiers, candidateMatchesMappingTitle, parseAutoMatchMappingRules, resolveAutoMatchMapping } from './utils/auto-match-mapping-util.js';
+import { findSecondaryMatches } from './utils/merge-util.js';
 import { HTML_TEMPLATE } from './ui/template.js';
 import { apitestJsContent } from './ui/js/apitest.js';
 import { logviewJsContent } from './ui/js/logview.js';
@@ -4224,6 +4225,85 @@ test('fallback matching prefers the candidate of the target season', async () =>
   // 无同季候选或未指定季号时保持原有取值顺序
   assert.equal(await matchFallback([secondSeason], 3), 2001);
   assert.equal(await matchFallback([secondSeason, thirdSeason], null), 2001);
+});
+
+test('合并映射表规则忽略标题中的季度与类型噪声', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedRules = Globals.envs.customMergeRules;
+  const savedEnvRules = process.env.CUSTOM_MERGE_RULES;
+
+  const buildAnime = (animeId, animeTitle, source, aliases = []) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases,
+    source,
+    type: 'web',
+    typeDescription: '网络放送',
+    startDate: '2026-03-18T16:00:00.000Z',
+    links: [],
+  });
+
+  try {
+    process.env.CUSTOM_MERGE_RULES = [
+      '飙马野郎 JOJO的奇妙冒险 第二&第三赛段(2026)【WEB动画】@animeko -> 飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】@dandan',
+      '剧场版 刀剑神域 进击篇 黯淡黄昏的谐谑曲(2022)【剧场版】@dandan -> 剧场版 刀剑神域 进击篇 无星之夜的咏叹调(2021)【剧场版】@bahamut',
+    ].join(';');
+    Globals.envs.customMergeRules = Envs.resolveCustomMergeRules();
+
+    // 规则标题含「第X赛段」时，两侧需做一致的季度噪声剥离后才能严格比对命中
+    const dandanStage1 = buildAnime(19287, '飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】from dandan', 'dandan');
+    const animekoStage23 = buildAnime(639938, '飙马野郎 JOJO的奇妙冒险 第二&第三赛段(2026)【WEB动画】from animeko', 'animeko');
+    assert.deepStrictEqual(
+      findSecondaryMatches(dandanStage1, [animekoStage23], new Set(), ['animeko']).map((a) => a.animeId),
+      [639938],
+      '规则标题含「第二&第三赛段」仍能命中主源「第一赛段」',
+    );
+    // 传入空的 baseSecondaries 时，只有特权通道能放行：用于判别规则是否真的命中（而非仅靠相似度通过）
+    assert.deepStrictEqual(
+      findSecondaryMatches(dandanStage1, [animekoStage23], new Set(), []).map((a) => a.animeId),
+      [639938],
+      '规则命中后不受权限沙箱限制',
+    );
+
+    // 规则标题含「剧场版」时，两侧需做一致的类型噪声剥离后才能严格比对命中
+    const bahamutMovie = buildAnime(90001, '剧场版 刀剑神域 进击篇 无星之夜的咏叹调(2021)【剧场版】from bahamut', 'bahamut');
+    const dandanMovie = buildAnime(90002, '剧场版 刀剑神域 进击篇 黯淡黄昏的谐谑曲(2022)【剧场版】from dandan', 'dandan');
+    assert.deepStrictEqual(
+      findSecondaryMatches(bahamutMovie, [dandanMovie], new Set(), []).map((a) => a.animeId),
+      [90002],
+      '规则标题含「剧场版」仍能命中',
+    );
+
+    // 规则标题显式写「季」时两侧均不剥离季度噪声：规则所写的季命中，其它季不匹配
+    process.env.CUSTOM_MERGE_RULES = '某测试动画 第三季(2026)【TV动画】@bilibili -> 某测试动画 第二季(2026)【TV动画】@dandan';
+    Globals.envs.customMergeRules = Envs.resolveCustomMergeRules();
+    const seasonPrimary = buildAnime(91001, '某测试动画 第二季(2026)【TV动画】from dandan', 'dandan');
+    const seasonSecondary = buildAnime(91002, '某测试动画 第三季(2026)【TV动画】from bilibili', 'bilibili');
+    const seasonOther = buildAnime(91003, '某测试动画 第二季(2026)【TV动画】from bilibili', 'bilibili');
+    assert.deepStrictEqual(
+      findSecondaryMatches(seasonPrimary, [seasonSecondary], new Set(), []).map((a) => a.animeId),
+      [91002],
+      '规则显式写季时规则所写的季命中',
+    );
+    assert.strictEqual(
+      findSecondaryMatches(seasonPrimary, [seasonOther], new Set(), []).length,
+      0,
+      '规则显式写季时其它季不匹配',
+    );
+
+    // 与规则无关的作品仍按常规相似度判定，不因噪声剥离而被放行
+    const unrelatedAnime = buildAnime(90003, '完全无关的测试作品(2026)【TV动画】from dandan', 'dandan');
+    assert.strictEqual(
+      findSecondaryMatches(unrelatedAnime, [animekoStage23], new Set(), []).length,
+      0,
+      '无关作品不被放行',
+    );
+  } finally {
+    Globals.envs.customMergeRules = savedRules;
+    if (savedEnvRules === undefined) delete process.env.CUSTOM_MERGE_RULES;
+    else process.env.CUSTOM_MERGE_RULES = savedEnvRules;
+  }
 });
 
 test('season extraction recognizes season markers', () => {

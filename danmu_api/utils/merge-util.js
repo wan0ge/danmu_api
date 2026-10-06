@@ -1813,11 +1813,14 @@ function getMatchingCustomRule(pAnime, sAnime) {
             cleanAnime = cleanAnime.replace(RegexStore.Clean.SOURCE_TAG, '').replace(/\[.*?\]/g, '');
         }
 
-        // 3. 剥离季度和类型噪声
-        if (!cleanRule.includes('季') && !cleanRule.includes('season')) {
-            cleanAnime = cleanAnime.replace(RegexStore.Season.INFO_STRONG, '');
-        }
-        cleanAnime = cleanAnime.replace(RegexStore.Clean.MOVIE_KEYWORDS, '');
+        // 3. 剥离季度和类型噪声：两侧按同一规则处理，避免规则标题中的季度词（如「第一赛段」）或类型词造成单侧失配
+        const skipSeasonNoise = cleanRule.includes('季') || cleanRule.includes('season');
+        const stripSeasonAndTypeNoise = (text) => {
+            const withoutSeason = skipSeasonNoise ? text : text.replace(RegexStore.Season.INFO_STRONG, '');
+            return withoutSeason.replace(RegexStore.Clean.MOVIE_KEYWORDS, '');
+        };
+        cleanAnime = stripSeasonAndTypeNoise(cleanAnime);
+        cleanRule = stripSeasonAndTypeNoise(cleanRule);
 
         // 终极清洗：使用 common-util 的 stripNonTitleChars 规范化所有标点与特殊符号
         return {
