@@ -4227,7 +4227,7 @@ test('fallback matching prefers the candidate of the target season', async () =>
   assert.equal(await matchFallback([secondSeason, thirdSeason], null), 2001);
 });
 
-test('合并映射表规则忽略标题中的季度与类型噪声', () => {
+test('merge findSecondaryMatches 忽略规则与剧集标题的季度与类型噪声', () => {
   Globals.init({ LOG_LEVEL: 'error' });
   const savedRules = Globals.envs.customMergeRules;
   const savedEnvRules = process.env.CUSTOM_MERGE_RULES;
