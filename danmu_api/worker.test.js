@@ -41,6 +41,7 @@ import { Envs } from "./configs/envs.js";
 import { addAnime, addEpisode, findUrlById, getEpisodeIdFloor, getSearchCache, hasSeasonSpecificPreference, isSearchCacheValid, setSearchCache } from "./utils/cache-util.js";
 import { addFavorite, listFavorites, loadFavorites, removeFavorite, resolveFavoriteForKeyword, saveFavorites } from './utils/favorite-util.js';
 import { candidateMatchesMappingQualifiers, candidateMatchesMappingTitle, parseAutoMatchMappingRules, resolveAutoMatchMapping } from './utils/auto-match-mapping-util.js';
+import { findSecondaryMatches, applyMergeLogic, resolveDubVersionLinkIndex } from "./utils/merge-util.js";
 import { HTML_TEMPLATE } from './ui/template.js';
 import { apitestJsContent } from './ui/js/apitest.js';
 import { logviewJsContent } from './ui/js/logview.js';
@@ -4377,6 +4378,189 @@ test('season extraction recognizes season markers', () => {
 //     assert.strictEqual(Envs.accessedEnvVars.get('DANDANPLAY_PASSWORD'), '***');
 //     assert.strictEqual(Envs.originalEnvVars.get('DANDANPLAY_PASSWORD'), 'p#w');
 //   });
+
+test('merge findSecondaryMatches 配音版本年份豁免与季标记集证据', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: titles.map((title) => ({ title })),
+    episodeCount: titles.length,
+  });
+  const epTitles = (count, names) => Array.from({ length: count }, (_, i) => `第${i + 1}集 ${names[i % names.length]}`);
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+
+  // 配音版本条目年份取配音版本自身发行年的来源参与时，年份差 10 年以内豁免
+  assert.strictEqual(matched(
+    buildAnime(1, '工作细胞（中配版）(2021)【电视剧】from bilibili', 'bilibili', epTitles(13, ['红细胞'])),
+    buildAnime(2, '工作细胞(2018)【电视剧】from dandan', 'dandan', epTitles(13, ['红细胞'])),
+  ), true, 'bilibili 配音版本年份差豁免');
+
+  // 其余来源的配音版本不享有年份豁免
+  assert.strictEqual(matched(
+    buildAnime(3, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+    buildAnime(4, '倚天屠龙记(2009)【电视剧】from aiyifan', 'aiyifan', epTitles(40, ['少年张无忌'])),
+  ), false, '非 bilibili 配音版本不做年份豁免');
+
+  // 年份差 2 年时季标记豁免需集证据：正片集数相差超过 1 集且集标题不同则不豁免
+  assert.strictEqual(matched(
+    buildAnime(5, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+    buildAnime(6, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epTitles(40, ['少年张无忌'])),
+  ), false, '集数相差 2 集且集标题不同时不豁免');
+
+  // 正片集数相差不超过 1 集时豁免成立
+  assert.strictEqual(matched(
+    buildAnime(7, '倚天屠龙记(2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+    buildAnime(8, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epTitles(41, ['少年张无忌'])),
+  ), true, '正片集数相差 1 集内豁免成立');
+
+  // 正片集数相差超过 1 集但集标题采样相似达标时豁免成立
+  assert.strictEqual(matched(
+    buildAnime(13, '咒术回战(2021)【电视剧】from tencent', 'tencent', epTitles(13, ['两面宿傩'])),
+    buildAnime(14, '咒术回战(2023)【电视剧】from bahamut', 'bahamut', epTitles(15, ['宿儺のはなし'])),
+  ), false, '集标题字符集不一致时不做集标题证据');
+
+  assert.strictEqual(matched(
+    buildAnime(15, '咒术回战(2021)【电视剧】from tencent', 'tencent', epTitles(13, ['两面宿傩'])),
+    buildAnime(16, '咒术回战(2023)【电视剧】from bilibili', 'bilibili', epTitles(15, ['两面宿傩'])),
+  ), true, '集标题同字符集且采样相似时豁免成立');
+
+  // 两侧集标题都是剧名本身（冗余标题字段）时不具备区分能力，不作为集证据
+  assert.strictEqual(matched(
+    buildAnime(17, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', Array.from({ length: 42 }, () => '倚天屠龙记')),
+    buildAnime(18, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', Array.from({ length: 40 }, () => '倚天屠龙记')),
+  ), false, '集标题为剧名本身时不做集标题证据');
+  // EN 集标题：两侧同为拉丁字母时按字符集判定为同一语种，参与采样
+  assert.strictEqual(matched(
+    buildAnime(19, 'Drama X(2021)【电视剧】from tencent', 'tencent', ['Episode One', 'Episode Two', 'Episode Three']),
+    buildAnime(20, 'Drama X(2023)【电视剧】from aiyifan', 'aiyifan', ['Episode One', 'Episode Two', 'Episode Three', 'Episode Four', 'Episode Five']),
+  ), true, 'EN 集标题同字符集且采样相似时豁免成立');
+  // 集标题既无假名、也无汉字拉丁字母（无脚本）时不作为集证据
+  assert.strictEqual(matched(
+    buildAnime(21, 'Drama Y(2021)【电视剧】from tencent', 'tencent', ['①②③', '④⑤⑥', '⑦⑧⑨']),
+    buildAnime(22, 'Drama Y(2023)【电视剧】from aiyifan', 'aiyifan', ['①②③', '④⑤⑥', '⑦⑧⑨', '⑩⑪⑫', '⑬⑭⑮']),
+  ), false, '集标题无脚本时不作为集证据');
+
+  // 年份差 1 年以内不进入豁免链
+  assert.strictEqual(matched(
+    buildAnime(9, 'FX战士久留美(2026)【TV动画】from dandan', 'dandan', epTitles(4, ['日常'])),
+    buildAnime(10, 'FX战士久留美(2027)【TV动画】from bahamut', 'bahamut', epTitles(2, ['日常'])),
+  ), true, '年份差 1 年直接通过');
+
+  // 合并映射表特权通道不受年份校验影响
+  const savedRules = Globals.envs.customMergeRules;
+  const savedEnvRules = process.env.CUSTOM_MERGE_RULES;
+  try {
+    process.env.CUSTOM_MERGE_RULES = '倚天屠龙记(2003)【电视剧】@aiyifan -> 倚天屠龙记[普通话版](2001)【电视剧】@tencent';
+    Globals.envs.customMergeRules = Envs.resolveCustomMergeRules();
+    assert.strictEqual(
+      findSecondaryMatches(
+        buildAnime(11, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+        [buildAnime(12, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epTitles(40, ['少年张无忌']))],
+        new Set(), [],
+      ).length, 1, '映射表特权通道照常放行');
+  } finally {
+    process.env.CUSTOM_MERGE_RULES = savedEnvRules;
+    Globals.envs.customMergeRules = savedRules;
+  }
+});
+
+test('merge findSecondaryMatches 同一配音版本只并入一条', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: /【电影】/.test(animeTitle) ? '电影' : '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: titles.map((title) => ({ title })),
+    episodeCount: titles.length,
+  });
+  const titlesOf = (list) => findSecondaryMatches(list.primary, list.secondaries, new Set(), ['aiyifan']).map((a) => a.animeTitle);
+
+  // 主源为粤语版时，另一部作品的粤语版不再并入（只保留分数最高的同语言一条）
+  assert.deepStrictEqual(titlesOf({
+    primary: buildAnime(1, '倚天屠龙记之圣火雄风粤语(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
+    secondaries: [
+      buildAnime(2, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+      buildAnime(3, '倚天屠龙记之圣火雄风(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+    ],
+  }), ['倚天屠龙记之圣火雄风(粤语)(2022)【电影】from aiyifan'], '同配音版本只保留最高分一条');
+
+  // 不同配音版本各保留一条
+  assert.strictEqual(titlesOf({
+    primary: buildAnime(4, '倚天屠龙记之圣火雄风(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
+    secondaries: [
+      buildAnime(5, '倚天屠龙记之圣火雄风(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+      buildAnime(6, '倚天屠龙记之圣火雄风(国语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+    ],
+  }).length, 2, '不同配音版本各保留一条');
+
+  // 同一作品的同语言结果来自多个来源时，同样只并入最高分的一条
+  assert.deepStrictEqual(titlesOf({
+    primary: buildAnime(7, '倚天屠龙记之九阳神功(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
+    secondaries: [
+      buildAnime(8, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+      buildAnime(9, '倚天屠龙记之九阳神功粤语(2022)【电影】from tencent', 'tencent', ['正片']),
+    ],
+  }).length, 1, '同一作品的同语言结果只保留最高分一条');
+});
+
+test('merge applyMergeLogic 集对齐不绕过年份校验', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan' });
+  const epLinks = (count, name) => Array.from({ length: count }, (_, i) => ({
+    title: `${name}_${String(i + 1).padStart(2, '0')}`,
+    url: `https://example.com/${encodeURIComponent(name)}/${i + 1}`,
+  }));
+  const buildAnime = (animeId, animeTitle, source, links) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links,
+  });
+
+  const primary = buildAnime(1, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epLinks(42, '倚天屠龙记[普通话版]'));
+  const wrong   = buildAnime(2, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epLinks(40, '倚天屠龙记'));
+
+  await applyMergeLogic([primary, wrong]);
+
+  assert.strictEqual(primary.links.some((link) => String(link.url).includes('aiyifan')), false, '年份差 2 年的同名不同作品不因集对齐而关联');
+  assert.strictEqual(primary.mergedChildren, undefined, '未产生合并子条目');
+  assert.strictEqual(wrong.links.some((link) => String(link.url).includes('tencent')), false, '副源链接未被改写');
+});
+
+test('merge resolveDubVersionLinkIndex 按配音版本选择主源链接', () => {
+  const filteredLinks = [
+    { link: { title: '【qq】 倚天屠龙记之九阳神功(普通话版)', url: 'mandarin' }, originalIndex: 0 },
+    { link: { title: '【qq】 倚天屠龙记之九阳神功(粤语版)', url: 'cantonese' }, originalIndex: 1 },
+  ];
+  const titleOf = (link) => link.title;
+
+  assert.strictEqual(
+    resolveDubVersionLinkIndex(filteredLinks, 0, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    1, '粤语副源选择粤语主源链接');
+  assert.strictEqual(
+    resolveDubVersionLinkIndex(filteredLinks, 0, '倚天屠龙记之九阳神功(国语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    0, '国语副源落在国语主源链接');
+  assert.strictEqual(
+    resolveDubVersionLinkIndex(filteredLinks, 0, '倚天屠龙记之九阳神功(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    0, '副源无配音标识时保持原链接');
+  assert.strictEqual(
+    resolveDubVersionLinkIndex([filteredLinks[0]], 0, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    0, '主源无同配音版本链接时保持原链接');
+});
 
 test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
 

@@ -93,6 +93,13 @@ const Thresholds = Object.freeze({
     COLLECTION_DIFF:   6      // 合集判定数量差阈值（超出N集才认为是合集）
 });
 
+/**
+ * 配音版本条目年份取配音版本自身发行年的来源
+ * 这些来源的配音版条目年份与原版首播年可相差数年，年份校验对其提供配音版本误差豁免
+ * @readonly
+ */
+const DUB_VERSION_YEAR_SOURCES = new Set(['bilibili']);
+
 
 // ==============================================================================
 // [L2] 日志系统 (Log System)
@@ -989,13 +996,13 @@ function hasSameSeasonMarker(titleA, titleB, typeA, typeB, aliasesA = [], aliase
 
 /**
  * 校验日期匹配度，返回评分修正量
- * 配音版（isDub=true）允许 10 年误差（配音版发行晚于原版属正常现象）
+ * 配音版本条目年份取配音版本自身发行年的来源（见 DUB_VERSION_YEAR_SOURCES）参与时允许 10 年误差
  * @param {{year:number|null, month:number|null}} dateA
  * @param {{year:number|null, month:number|null}} dateB
- * @param {boolean} [isDub=false] - 是否为配音关系
+ * @param {boolean} [isDubVersionYear=false] - 是否为配音版本年份来源的配音条目
  * @returns {number} 评分修正量（-1=严重不匹配, 0=中性, >0=奖励）
  */
-function checkDateMatch(dateA, dateB, isDub = false) {
+function checkDateMatch(dateA, dateB, isDubVersionYear = false) {
     if (!dateA.year || !dateB.year) return 0.05; // 日期未知给予小额默认分
     const yearDiff = dateA.year - dateB.year;
     if (yearDiff === 0) {
@@ -1007,7 +1014,7 @@ function checkDateMatch(dateA, dateB, isDub = false) {
         return 0.1;
     }
     const absDiff = Math.abs(yearDiff);
-    if (isDub && absDiff <= 10) return 0; // 配音版年份误差豁免
+    if (isDubVersionYear && absDiff <= 10) return 0; // 配音版本年份误差豁免
     if (absDiff > 1) return -1;           // 年份差超过 1 年时严格惩罚
     return 0;
 }
@@ -1707,6 +1714,131 @@ function detectPeerContextSequels(secondaryList) {
 }
 
 /**
+ * 统计正片集数：排除 PV 与特别篇
+ * @param {Array} links - 集链接列表
+ * @returns {number} 正片集数
+ */
+function countMainEpisodes(links) {
+    if (!Array.isArray(links)) return 0;
+    return links.filter(l => {
+        const t = (l.title || l.name || '').toLowerCase();
+        return !RegexStore.Episode.PV_CHECK.test(t) && !RegexStore.Episode.SPECIAL_CHECK.test(t);
+    }).length;
+}
+
+/**
+ * 提取集标题的语义部分：清洗后去除数字，仅保留有语义长度的标题
+ * @param {Array} links - 集链接列表
+ * @returns {Array<string>} 集标题列表
+ */
+function extractEpisodeTitles(links) {
+    if (!Array.isArray(links)) return [];
+    return links.map(l => cleanEpisodeText(l.title || l.name || '').replace(/\d+/g, '').trim())
+                .filter(t => t.length > 1);
+}
+
+/**
+ * 集标题采样比对：均匀抽样至多 5 对，统计相似与不相似的命中数
+ * @param {Array<string>} titlesP - 主源集标题
+ * @param {Array<string>} titlesS - 副源集标题
+ * @returns {{sampleSize:number, matchHits:number, mismatchHits:number, samples:Array<string>}}
+ */
+function sampleEpisodeTitles(titlesP, titlesS) {
+    const sampleSize = Math.min(titlesP.length, titlesS.length, 5);
+    const samples = [];
+    let matchHits = 0, mismatchHits = 0;
+    for (let i = 0; i < sampleSize; i++) {
+        const idxP = Math.floor(i * titlesP.length / sampleSize);
+        const idxS = Math.floor(i * titlesS.length / sampleSize);
+        const sim  = calculateSimilarity(titlesP[idxP], titlesS[idxS]);
+        if (i < 3) samples.push(`"${titlesP[idxP]}" vs "${titlesS[idxS]}" (${sim.toFixed(2)})`);
+        if (sim > 0.6) matchHits++;
+        else if (sim < 0.3) mismatchHits++;
+    }
+    return { sampleSize, matchHits, mismatchHits, samples };
+}
+
+/**
+ * 集标题字符集语种：语言关键字判定只覆盖配音与字幕标识，这里按字符集补充判定
+ * @param {string} text - 集标题文本
+ * @returns {string} 'JP'（含假名）| 'CN'（含汉字）| 'EN'（含拉丁字母）| 'Unknown'
+ */
+function getTitleScriptLanguage(text) {
+    if (!text) return 'Unknown';
+    if (/[\u3041-\u309F\u30A0-\u30FF]/.test(text)) return 'JP';
+    if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(text)) return 'CN';
+    if (/[A-Za-z]/.test(text)) return 'EN';
+    return 'Unknown';
+}
+
+/**
+ * 配音版本标识：同一主源对同一配音版本只并入一条结果
+ * 标识按配音语言归一（普通话与国语同为国语，港配与粤语同为粤语），字幕与助听标识不计入
+ * @param {string} title - 条目标题
+ * @returns {string|null} 配音版本标识，无配音标识时为 null
+ */
+function getDubVersionLabel(title) {
+    const text = String(title || '');
+    if (/(普通[话話]|[国國][语語]|中文配音|中配|中文)/.test(text)) return '国语';
+    if (/([粤粵][语語]配音|[粤粵]配|[粤粵][语語]|港配|港[语語])/.test(text)) return '粤语';
+    if (/([台臺]配|[台臺][语語])/.test(text)) return '台配';
+    if (/(日[语語]配音|日配)/.test(text)) return '日语';
+    return null;
+}
+
+/**
+ * 归并一条副源链接到主源链接：拼接复合 URL 并在标题标签中追加来源
+ * @param {Object} targetLink           - 主源链接
+ * @param {Object} sourceLink           - 副源链接
+ * @param {string} secSource            - 副源名
+ * @param {string} currentPrimarySource - 主源名
+ * @returns {{url:string, title:string}} 归并后的链接字段
+ */
+function mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource) {
+    const secPart = `${secSource}:${sanitizeUrl(sourceLink.url)}`;
+    let url = targetLink.url;
+    if (!url.includes(MERGE_DELIMITER) && !url.startsWith(currentPrimarySource + ':')) {
+        url = `${currentPrimarySource}:${url}`;
+    }
+    url = `${url}${MERGE_DELIMITER}${secPart}`;
+
+    let title = targetLink.title;
+    if (title) {
+        let sLabel = secSource;
+        const sMatch = String(sourceLink.title || '').match(/^【([^】\d]+)(?:\d*)】/);
+        if (sMatch) sLabel = sMatch[1].trim();
+        title = title.replace(/^【([^】]+)】/, (m, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
+    }
+    return { url, title };
+}
+
+/**
+ * 按配音版本标识为主源链接选择同标识链接
+ * 副源条目的配音版本标识与主源链接的配音版本标识都可判定，且存在集号与特殊类型一致的同标识链接时使用该链接
+ * @param {Array}    filteredPLinksWithIndex - 主源过滤后链接列表（元素含 link 与 originalIndex）
+ * @param {number}   pIndex                  - 当前选中的链接索引
+ * @param {string}   candidateTitle          - 副源番剧标题
+ * @param {Function} getCompareTitle         - 取链接比对标题的函数
+ * @param {string}   primarySource           - 主源名
+ * @returns {number} 调整后的链接索引，标识不可判定或无同标识链接时返回原索引
+ */
+export function resolveDubVersionLinkIndex(filteredPLinksWithIndex, pIndex, candidateTitle, getCompareTitle, primarySource) {
+    const candidateLabel = getDubVersionLabel(candidateTitle);
+    if (!candidateLabel) return pIndex;
+
+    const chosenInfo = extractEpisodeInfo(getCompareTitle(filteredPLinksWithIndex[pIndex].link), primarySource);
+    const matched = [];
+    filteredPLinksWithIndex.forEach((item, idx) => {
+        if (getDubVersionLabel(item.link.title || item.link.name) !== candidateLabel) return;
+        const info = extractEpisodeInfo(getCompareTitle(item.link), primarySource);
+        if (info.isSpecial !== chosenInfo.isSpecial || info.isStrictSpecial !== chosenInfo.isStrictSpecial) return;
+        if (info.num !== chosenInfo.num) return;
+        matched.push(idx);
+    });
+    return matched.length === 1 ? matched[0] : pIndex;
+}
+
+/**
  * 探测集内容匹配情况 (Content Probe)
  * 通过抽样对比集标题（最多 5 对），判断两个条目是否强匹配或强不匹配。
  * 该结果可覆盖标题相似度，作为最高优先级的辅助信号
@@ -1719,26 +1851,8 @@ function probeContentMatch(primaryAnime, candidateAnime) {
     if (!primaryAnime.links || !candidateAnime.links)   return result;
     if (!primaryAnime.links.length || !candidateAnime.links.length) return result;
 
-    // 计算正片集数（排除 PV/Special），用于覆盖率判断
-    const countEpisodes = (links) => links.filter(l => {
-        const t = (l.title || l.name || '').toLowerCase();
-        return !RegexStore.Episode.PV_CHECK.test(t) && !RegexStore.Episode.SPECIAL_CHECK.test(t);
-    }).length;
-    const countP = countEpisodes(primaryAnime.links);
-    const countS = countEpisodes(candidateAnime.links);
-    if (countP > 5 && countS > 5) {
-        const ratio = Math.min(countP, countS) / Math.max(countP, countS);
-        if (ratio < 0.4) { /* 覆盖率过低，不做强判断，留给后续流程决定 */ }
-    }
-
-    // 提取并清洗集标题（去除数字，只保留语义词）
-    const getEpTitles = (links) => links.map(l => {
-        const t = cleanEpisodeText(l.title || l.name || '');
-        return t.replace(/\d+/g, '').trim();
-    }).filter(t => t.length > 1);
-
-    const titlesP = getEpTitles(primaryAnime.links);
-    const titlesS = getEpTitles(candidateAnime.links);
+    const titlesP = extractEpisodeTitles(primaryAnime.links);
+    const titlesS = extractEpisodeTitles(candidateAnime.links);
     if (titlesP.length < 3 || titlesS.length < 3) return result;
 
     // 语言必须一致且可识别才进行探测（避免中日文集标题误判）
@@ -1746,26 +1860,93 @@ function probeContentMatch(primaryAnime, candidateAnime) {
     const langS = getLanguageType(titlesS.join(' '));
     if (langP !== langS || langP === 'Unspecified') return result;
 
-    // 均匀抽样，最多 5 对
-    const sampleSize = Math.min(titlesP.length, titlesS.length, 5);
-    let matchHits = 0, mismatchHits = 0;
-    let logSamples = [];
-    for (let i = 0; i < sampleSize; i++) {
-        const idxP = Math.floor(i * titlesP.length / sampleSize);
-        const idxS = Math.floor(i * titlesS.length / sampleSize);
-        const sim  = calculateSimilarity(titlesP[idxP], titlesS[idxS]);
-        if (i < 3) logSamples.push(`"${titlesP[idxP]}" vs "${titlesS[idxS]}" (${sim.toFixed(2)})`);
-        if (sim > 0.6) matchHits++;
-        else if (sim < 0.3) mismatchHits++;
-    }
+    const { sampleSize, matchHits, mismatchHits, samples } = sampleEpisodeTitles(titlesP, titlesS);
     if (matchHits >= Math.ceil(sampleSize * 0.6)) {
         result.isStrongMatch = true;
-        log("info", `[Merge-Check] [probe] 采样对比 (Match): ${logSamples.join(', ')}`);
+        log("info", `[Merge-Check] [probe] 采样对比 (Match): ${samples.join(', ')}`);
     } else if (mismatchHits >= Math.ceil(sampleSize * 0.8)) {
         result.isStrongMismatch = true;
-        log("info", `[Merge-Check] [probe] 采样对比 (Mismatch): ${logSamples.join(', ')}`);
+        log("info", `[Merge-Check] [probe] 采样对比 (Mismatch): ${samples.join(', ')}`);
     }
     return result;
+}
+
+/**
+ * 相似度比对使用的标题：去除年份标签与类型标签
+ * @param {string} rawTitle - 原始标题
+ * @returns {string} 比对用标题
+ */
+function titleForSimilarity(rawTitle) {
+    return String(rawTitle || '').replace(RegexStore.Clean.YEAR_TAG, '').replace(/【(电影|电视剧)】/g, '').trim();
+}
+
+/**
+ * 年份关系判定：返回日期评分修正量，并判定年份差超出常规范围时豁免是否成立
+ * 收录侧与集对齐侧的关联判定共用此函数，保证两侧年份规则一致
+ * @param {Object} ctx 判定上下文
+ * @param {Object} ctx.primaryAnime         - 主源番剧对象
+ * @param {Object} ctx.candidateAnime       - 候选副源番剧对象
+ * @param {{year:number|null, month:number|null}} ctx.primaryDate   - 主源日期
+ * @param {{year:number|null, month:number|null}} ctx.candidateDate - 副源日期
+ * @param {boolean} ctx.isDubVersionYearRelation - 是否涉及配音版本年份来源
+ * @param {boolean} ctx.isAnyCollection          - 是否涉及合集
+ * @param {boolean} ctx.isSeasonExactMatch       - 季度标记是否一致
+ * @param {boolean} ctx.hasStructureConflict     - 标题结构是否冲突
+ * @param {{isStrongMatch:boolean}} ctx.contentProbe - 集内容探测结果
+ * @returns {{allowed:boolean, dateScore:number}} 是否允许关联与日期评分修正量
+ */
+function resolveDateRelation(ctx) {
+    const {
+        primaryAnime, candidateAnime, primaryDate, candidateDate,
+        isDubVersionYearRelation, isAnyCollection, isSeasonExactMatch, hasStructureConflict, contentProbe
+    } = ctx;
+    if (isAnyCollection) return { allowed: true, dateScore: 0 };
+
+    const dateScore = checkDateMatch(primaryDate, candidateDate, isDubVersionYearRelation);
+    if (dateScore !== -1) return { allowed: true, dateScore };
+
+    // 年份差超出常规范围时，同季标记需附集证据（正片集数相差不超过 1 集，或正片集标题采样相似达标）才豁免
+    let allowExemption = isSeasonExactMatch && hasSeasonEvidence(primaryAnime, candidateAnime);
+    if (contentProbe.isStrongMatch) allowExemption = true;
+    if (hasStructureConflict) allowExemption = false;
+    if (allowExemption && primaryDate.year && candidateDate.year) {
+        const yearDiff = Math.abs(primaryDate.year - candidateDate.year);
+        if (yearDiff > 2 && !contentProbe.isStrongMatch) allowExemption = false;
+    }
+    return { allowed: allowExemption, dateScore };
+}
+
+/**
+ * 判定日期豁免所需的集证据：正片集数相差不超过 1 集，或正片集标题采样相似达标
+ * 集标题比对的语种按字符集判定，纯中文集标题同样参与比对；
+ * 集标题整体由剧名构成（冗余标题字段）时不具备区分能力，不作为集证据
+ * @param {Object} primaryAnime   - 主源番剧对象
+ * @param {Object} candidateAnime - 候选副源番剧对象
+ * @returns {boolean} 是否具备豁免所需的集证据
+ */
+function hasSeasonEvidence(primaryAnime, candidateAnime) {
+    const countP = countMainEpisodes(primaryAnime.links);
+    const countS = countMainEpisodes(candidateAnime.links);
+    if (Math.abs(countP - countS) <= 1) return true;
+
+    if (identifyRedundantTitle(primaryAnime.links, primaryAnime.animeTitle, primaryAnime.source) ||
+        identifyRedundantTitle(candidateAnime.links, candidateAnime.animeTitle, candidateAnime.source)) {
+        log("info", `[Merge-Check] 集证据判定: ${primaryAnime.animeTitle} <-> ${candidateAnime.animeTitle} 集标题为剧名本身，不作集证据`);
+        return false;
+    }
+
+    const titlesP = extractEpisodeTitles(primaryAnime.links);
+    const titlesS = extractEpisodeTitles(candidateAnime.links);
+    if (titlesP.length < 3 || titlesS.length < 3) return false;
+
+    const scriptP = getTitleScriptLanguage(titlesP.join(' '));
+    const scriptS = getTitleScriptLanguage(titlesS.join(' '));
+    if (scriptP === 'Unknown' || scriptP !== scriptS) return false;
+
+    const { sampleSize, matchHits } = sampleEpisodeTitles(titlesP, titlesS);
+    const passed = matchHits >= Math.ceil(sampleSize * 0.6);
+    log("info", `[Merge-Check] 集证据判定: 正片集数 ${countP}/${countS}, 集标题命中 ${matchHits}/${sampleSize} -> ${passed}`);
+    return passed;
 }
 
 /**
@@ -1879,8 +2060,9 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
 
     // [性能优化] 提取循环不变量，避免在内层循环中重复计算
     const rawPrimaryTitle    = primaryAnime.animeTitle || '';
-    const primaryTitleForSim = rawPrimaryTitle.replace(RegexStore.Clean.YEAR_TAG, '').replace(/【(电影|电视剧)】/g, '').trim();
+    const primaryTitleForSim = titleForSimilarity(rawPrimaryTitle);
     const isPrimaryDub       = !!(primaryTitleForSim.match(RegexStore.Lang.CN_DUB_VER)) || RegexStore.Lang.CN.test(primaryTitleForSim);
+    const isPrimaryDubVersionYear = isPrimaryDub && DUB_VERSION_YEAR_SOURCES.has(primaryAnime.source);
     const isPrimaryIgnoredYear = primaryAnime.source === 'hanjutv';
     const primaryDate        = (rawPrimaryTitle.includes('N/A') || isPrimaryIgnoredYear) ? { year: null, month: null } : parseDate(primaryAnime.startDate);
     const primaryCount       = primaryAnime.episodeCount || (primaryAnime.links ? primaryAnime.links.length : 0);
@@ -1940,9 +2122,10 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         const isSecIgnoredYear= secAnime.source === 'hanjutv';
         const secDate         = (rawSecTitle.includes('N/A') || isSecIgnoredYear) ? { year: null, month: null } : parseDate(secAnime.startDate);
         const secLang         = getLanguageType(rawSecTitle);
-        const secTitleForSim  = rawSecTitle.replace(RegexStore.Clean.YEAR_TAG, '').replace(/【(电影|电视剧)】/g, '').trim();
+        const secTitleForSim  = titleForSimilarity(rawSecTitle);
         const isSecDub        = !!(secTitleForSim.match(RegexStore.Lang.CN_DUB_VER)) || RegexStore.Lang.CN.test(secTitleForSim);
-        const isDubRelation   = isPrimaryDub || isSecDub;
+        const isSecDubVersionYear = isSecDub && DUB_VERSION_YEAR_SOURCES.has(secAnime.source);
+        const isDubVersionYearRelation = isPrimaryDubVersionYear || isSecDubVersionYear;
         const secCount        = secAnime.episodeCount || (secAnime.links ? secAnime.links.length : 0);
 
         // ── 之字结构强阻断 ───────────────────────────────────────────────
@@ -2014,21 +2197,15 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         }
 
         // ── 日期匹配校验 ─────────────────────────────────────────────────
-        const dateScore = isAnyCollection ? 0 : checkDateMatch(primaryDate, secDate, isDubRelation);
-        if (dateScore === -1) {
-            let allowExemption = isSeasonExactMatch;
-            if (contentProbe.isStrongMatch) allowExemption = true;
-            if (isAnyCollection) allowExemption = true;
-            if (hasStructureConflict && !isAnyCollection) allowExemption = false;
-            if (allowExemption && primaryDate.year && secDate.year) {
-                const yearDiff = Math.abs(primaryDate.year - secDate.year);
-                if (yearDiff > 2 && !contentProbe.isStrongMatch && !isAnyCollection) allowExemption = false;
-            }
-            if (!allowExemption) {
-                logReason(rawSecTitle, `日期严重不匹配且无豁免 (P:${primaryDate.year} vs S:${secDate.year}, IsDub:${isDubRelation})`);
-                continue;
-            }
+        const dateRelation = resolveDateRelation({
+            primaryAnime, candidateAnime: secAnime, primaryDate, candidateDate: secDate,
+            isDubVersionYearRelation, isAnyCollection, isSeasonExactMatch, hasStructureConflict, contentProbe
+        });
+        if (!dateRelation.allowed) {
+            logReason(rawSecTitle, `日期严重不匹配且无豁免 (P:${primaryDate.year} vs S:${secDate.year}, DubVersionYear:${isDubVersionYearRelation})`);
+            continue;
         }
+        const dateScore = dateRelation.dateScore;
 
         // ── 季度标记冲突校验 ─────────────────────────────────────────────
         if (!isAnyCollection && checkSeasonMismatch(primaryTitleForSim, secTitleForSim, primaryAnime.typeDescription, secAnime.typeDescription, primaryAnime.aliases, secAnime.aliases)) {
@@ -2118,7 +2295,17 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         if (!a.isCustomMapped && b.isCustomMapped) return 1;
         return b.score - a.score;
     });
-    return finalResults.map(item => item.anime);
+
+    // 同一配音版本只保留分数最高的一条，避免不同作品的同语言配音结果并入同一主源
+    const dubVersionSeen = new Set();
+    return finalResults.filter(item => {
+        if (item.isCustomMapped) return true;
+        const dubVersion = getDubVersionLabel(item.debugTitle);
+        if (!dubVersion) return true;
+        if (dubVersionSeen.has(dubVersion)) return false;
+        dubVersionSeen.add(dubVersion);
+        return true;
+    }).map(item => item.anime);
 }
 
 
@@ -2611,29 +2798,15 @@ async function processMergeTask(params) {
                     });
 
                     if (pIndex !== -1) {
-                        kToPIndexMap.set(k, pIndex);
-                        orphanItem.relativeIndex = pIndex;
-                        const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
+                        const targetPIndex = resolveDubVersionLinkIndex(filteredPLinksWithIndex, pIndex, match.animeTitle, (link) => getTempTitle(link.title, redundantP), currentPrimarySource);
+                        kToPIndexMap.set(k, targetPIndex);
+                        orphanItem.relativeIndex = targetPIndex;
+                        const originalPIndex = filteredPLinksWithIndex[targetPIndex].originalIndex;
                         const targetLink = derivedAnime.links[originalPIndex];
                         const pTitleShort = targetLink.name || targetLink.title || `Index ${originalPIndex}`;
 
                         // ── 执行 URL 合并 ────────────────────────────────────────
-                        const idB = sanitizeUrl(sourceLink.url);
-                        let currentUrl = targetLink.url;
-                        const secPart = `${secSource}:${idB}`;
-                        if (!currentUrl.includes(MERGE_DELIMITER)) {
-                            if (!currentUrl.startsWith(currentPrimarySource + ':')) currentUrl = `${currentPrimarySource}:${currentUrl}`;
-                        }
-                        const newMergedUrl = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
-
-                        // ── 合并标题标签 ─────────────────────────────────────────
-                        let newMergedTitle = targetLink.title;
-                        if (newMergedTitle) {
-                            let sLabel = secSource;
-                            const sMatch = (sourceLink.title || '').match(/^【([^】\d]+)(?:\d*)】/);
-                            if (sMatch) sLabel = sMatch[1].trim();
-                            newMergedTitle = newMergedTitle.replace(/^【([^】]+)】/, (m, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
-                        }
+                        const { url: newMergedUrl, title: newMergedTitle } = mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource);
 
                         mappingEntries.push({ idx: pIndex, text: `   [已路由映射] ${pTitleShort} <-> ${sTitleShort} (Rule: E${sNum}>E${targetPNum})` });
                         matchedPIndices.add(pIndex);
@@ -2746,8 +2919,9 @@ async function processMergeTask(params) {
                     }
 
                     if (pIndex >= 0 && pIndex < filteredPLinksWithIndex.length) {
-                        kToPIndexMap.set(k, pIndex);
-                        const originalPIndex = filteredPLinksWithIndex[pIndex].originalIndex;
+                        const targetPIndex = resolveDubVersionLinkIndex(filteredPLinksWithIndex, pIndex, match.animeTitle, (link) => getTempTitle(link.title, redundantP), currentPrimarySource);
+                        kToPIndexMap.set(k, targetPIndex);
+                        const originalPIndex = filteredPLinksWithIndex[targetPIndex].originalIndex;
                         const targetLink     = derivedAnime.links[originalPIndex];
                         const pTitleShort    = targetLink.name || targetLink.title || `Index ${originalPIndex}`;
                         const cleanTitleP    = getTempTitle(targetLink.title, redundantP);
@@ -2779,24 +2953,7 @@ async function processMergeTask(params) {
                         }
 
                         // ── 执行 URL 合并 ────────────────────────────────────────
-                        const idB         = sanitizeUrl(sourceLink.url);
-                        let currentUrl    = targetLink.url;
-                        const secPart     = `${secSource}:${idB}`;
-                        if (!currentUrl.includes(MERGE_DELIMITER)) {
-                            if (!currentUrl.startsWith(currentPrimarySource + ':')) currentUrl = `${currentPrimarySource}:${currentUrl}`;
-                        }
-                        const newMergedUrl = `${currentUrl}${MERGE_DELIMITER}${secPart}`;
-
-                        // ── 合并标题标签 ─────────────────────────────────────────
-                        let newMergedTitle = targetLink.title;
-                        if (newMergedTitle) {
-                            let sLabel = secSource;
-                            if (sourceLink.title) {
-                                const sMatch = sourceLink.title.match(/^【([^】\d]+)(?:\d*)】/);
-                                if (sMatch) sLabel = sMatch[1].trim();
-                            }
-                            newMergedTitle = newMergedTitle.replace(/^【([^】]+)】/, (match, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
-                        }
+                        const { url: newMergedUrl, title: newMergedTitle } = mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource);
 
                         mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [匹配] ${pTitleShort} <-> ${sTitleShort}` });
                         matchedPIndices.add(pIndex);
@@ -2821,6 +2978,31 @@ async function processMergeTask(params) {
 
             if (mergedCount > 0) {
                 const isAnyCollection = collectionAnimeIds.has(pAnime.animeId) || collectionAnimeIds.has(match.animeId);
+
+                // ── 年份关系校验：与标题匹配侧沿用同一套判定 ──────────────────
+                const derivedTitleForSim = titleForSimilarity(derivedAnime.animeTitle);
+                const matchTitleForSim   = titleForSimilarity(match.animeTitle);
+                const derivedDate        = (String(derivedAnime.animeTitle || '').includes('N/A') || currentPrimarySource === 'hanjutv') ? { year: null, month: null } : parseDate(derivedAnime.startDate);
+                const matchDate          = (String(match.animeTitle || '').includes('N/A') || secSource === 'hanjutv') ? { year: null, month: null } : parseDate(match.startDate);
+                const isDubVersionYearRelation =
+                    (DUB_VERSION_YEAR_SOURCES.has(currentPrimarySource) && (!!derivedTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(derivedTitleForSim))) ||
+                    (DUB_VERSION_YEAR_SOURCES.has(secSource) && (!!matchTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(matchTitleForSim)));
+                const dateRelation = resolveDateRelation({
+                    primaryAnime: derivedAnime,
+                    candidateAnime: match,
+                    primaryDate: derivedDate,
+                    candidateDate: matchDate,
+                    isDubVersionYearRelation,
+                    isAnyCollection,
+                    isSeasonExactMatch: hasSameSeasonMarker(derivedTitleForSim, matchTitleForSim, derivedAnime.typeDescription, match.typeDescription, derivedAnime.aliases, match.aliases),
+                    hasStructureConflict: checkTitleSubtitleConflict(derivedAnime.animeTitle, match.animeTitle, derivedDate.year !== null && matchDate.year !== null),
+                    contentProbe: probeContentMatch(derivedAnime, match)
+                });
+                if (!dateRelation.allowed) {
+                    log("info", `${logPrefix} 集对齐但年份关系不允许关联: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (对齐 ${mergedCount} 集)`);
+                    continue;
+                }
+
                 // ── 覆盖率校验 ────────────────────────────────────────────────
                 let isValidMerge = false;
                 if (customRule) {
