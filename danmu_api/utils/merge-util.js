@@ -124,6 +124,29 @@ function log(level, ...args) {
 // ==============================================================================
 
 /**
+ * 中文配音与字幕标识词表：按语言分组，语言识别正则与配音版本标识共用
+ * @constant {string}
+ */
+const LANG_CN_MANDARIN  = '普通[话話]|[国國][语語]|中文配音|中配|中文';
+const LANG_CN_CANTONESE = '[粤粵][语語]配音|[粤粵]配|[粤粵][语語]';
+const LANG_CN_TAIWANESE = '[台臺]配|[台臺][语語]';
+const LANG_CN_HONGKONG  = '港配|港[语語]';
+const LANG_CN_SUBTITLE  = '字幕|助[听聽]';
+const LANG_CN_SOURCE    = `${LANG_CN_MANDARIN}|${LANG_CN_CANTONESE}|${LANG_CN_TAIWANESE}|${LANG_CN_HONGKONG}|${LANG_CN_SUBTITLE}`;
+
+/**
+ * 日文配音与原始音轨标识词表：JP 系列正则共用
+ * @constant {string}
+ */
+const LANG_JP_SOURCE = '日[语語]|日配|原版|原[声聲]';
+
+/**
+ * 日文配音版本标识：配音版本标识不含原始音轨
+ * @constant {string}
+ */
+const LANG_JP_DUB = '日[语語]配音|日配';
+
+/**
  * 正则表达式中央仓库
  * 按功能域分组，避免在函数体内散落难以维护的字面量正则
  * 所有正则仅初始化一次，全局复用
@@ -131,13 +154,13 @@ function log(level, ...args) {
 const RegexStore = {
     /** 语言识别正则 */
     Lang: {
-        CN:          /(普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽])(?:版)?/,
-        JP:          /(日[语語]|日配|原版|原[声聲])(?:版)?/,
-        CN_DUB_VER:  /(\(|（|\[)?(普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽])版?(\)|）|\])?/g,
-        JP_DUB_VER:  /(\(|（|\[)?(日[语語]|日配|原版|原[声聲])版?(\)|）|\])?/g,
-        KEYWORDS_STRONG: /(?:普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽]|日[语語]|日配|原版|原[声聲])(?:版)?/g,
-        CN_STD:      /普通[话話]|[国國][语語]|中文配音|中配|中文|[粤粵][语語]配音|[粤粵]配|[粤粵][语語]|[台臺]配|[台臺][语語]|港配|港[语語]|字幕|助[听聽]/g,
-        JP_STD:      /日[语語]|日配|原版|原[声聲]/g
+        CN:          new RegExp(`(${LANG_CN_SOURCE})(?:版)?`),
+        JP:          new RegExp(`(${LANG_JP_SOURCE})(?:版)?`),
+        CN_DUB_VER:  new RegExp(`(\\(|（|\\[)?(${LANG_CN_SOURCE})版?(\\)|）|\\])?`, 'g'),
+        JP_DUB_VER:  new RegExp(`(\\(|（|\\[)?(${LANG_JP_SOURCE})版?(\\)|）|\\])?`, 'g'),
+        KEYWORDS_STRONG: new RegExp(`(?:${LANG_CN_SOURCE}|${LANG_JP_SOURCE})(?:版)?`, 'g'),
+        CN_STD:      new RegExp(LANG_CN_SOURCE, 'g'),
+        JP_STD:      new RegExp(LANG_JP_SOURCE, 'g')
     },
     /** 季度解析正则 */
     Season: {
@@ -328,6 +351,19 @@ function getLanguageType(text) {
     if (RegexStore.Lang.CN.test(t)) return 'CN';
     if (RegexStore.Lang.JP.test(t)) return 'JP';
     return 'Unspecified';
+}
+
+/**
+ * 集标题字符集语种：语言关键字判定只覆盖配音与字幕标识，这里按字符集补充判定
+ * @param {string} text - 集标题文本
+ * @returns {string} 'JP'（含假名）| 'CN'（含汉字）| 'EN'（含拉丁字母）| 'Unknown'
+ */
+function getTitleScriptLanguage(text) {
+    if (!text) return 'Unknown';
+    if (/[\u3041-\u309F\u30A0-\u30FF]/.test(text)) return 'JP';
+    if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(text)) return 'CN';
+    if (/[A-Za-z]/.test(text)) return 'EN';
+    return 'Unknown';
 }
 
 /**
@@ -743,6 +779,31 @@ function getContentCategory(title, typeDesc, source) {
     return 'UNKNOWN';
 }
 
+
+/**
+ * 配音版本标识及其正则：由中文与日文的配音标识词表构成
+ * @constant {Array<{label:string, regex:RegExp}>}
+ */
+const LANG_DUB_LABELS = [
+    { label: '国语', source: LANG_CN_MANDARIN },
+    { label: '粤语', source: `${LANG_CN_CANTONESE}|${LANG_CN_HONGKONG}` },
+    { label: '台配', source: LANG_CN_TAIWANESE },
+    { label: '日语', source: LANG_JP_DUB },
+].map(({ label, source }) => ({ label, regex: new RegExp(source) }));
+
+/**
+ * 配音版本标识：同一主源对同一配音版本只并入一条结果
+ * 标识按配音语言归一（普通话与国语同为国语，港配与粤语同为粤语），字幕与助听标识不计入
+ * @param {string} title - 条目标题
+ * @returns {string|null} 配音版本标识，无配音标识时为 null
+ */
+function getDubVersionLabel(title) {
+    const text = String(title || '');
+    for (const { label, regex } of LANG_DUB_LABELS) {
+        if (regex.test(text)) return label;
+    }
+    return null;
+}
 
 // ==============================================================================
 // [L7] 领域冲突检测层 (Domain Conflict Detection)
@@ -1662,6 +1723,51 @@ function stitchUnmatchedEpisodes(derivedAnime, orphans, sourceName) {
 }
 
 
+/**
+ * 统计正片集数：排除 PV 与特别篇
+ * @param {Array} links - 集链接列表
+ * @returns {number} 正片集数
+ */
+function countMainEpisodes(links) {
+    if (!Array.isArray(links)) return 0;
+    return links.filter(l => {
+        const t = (l.title || l.name || '').toLowerCase();
+        return !RegexStore.Episode.PV_CHECK.test(t) && !RegexStore.Episode.SPECIAL_CHECK.test(t);
+    }).length;
+}
+
+/**
+ * 提取集标题的语义部分：清洗后去除数字，仅保留有语义长度的标题
+ * @param {Array} links - 集链接列表
+ * @returns {Array<string>} 集标题列表
+ */
+function extractEpisodeTitles(links) {
+    if (!Array.isArray(links)) return [];
+    return links.map(l => cleanEpisodeText(l.title || l.name || '').replace(/\d+/g, '').trim())
+                .filter(t => t.length > 1);
+}
+
+/**
+ * 集标题采样比对：均匀抽样至多 5 对，统计相似与不相似的命中数
+ * @param {Array<string>} titlesP - 主源集标题
+ * @param {Array<string>} titlesS - 副源集标题
+ * @returns {{sampleSize:number, matchHits:number, mismatchHits:number, samples:Array<string>}}
+ */
+function sampleEpisodeTitles(titlesP, titlesS) {
+    const sampleSize = Math.min(titlesP.length, titlesS.length, 5);
+    const samples = [];
+    let matchHits = 0, mismatchHits = 0;
+    for (let i = 0; i < sampleSize; i++) {
+        const idxP = Math.floor(i * titlesP.length / sampleSize);
+        const idxS = Math.floor(i * titlesS.length / sampleSize);
+        const sim  = calculateSimilarity(titlesP[idxP], titlesS[idxS]);
+        if (i < 3) samples.push(`"${titlesP[idxP]}" vs "${titlesS[idxS]}" (${sim.toFixed(2)})`);
+        if (sim > 0.6) matchHits++;
+        else if (sim < 0.3) mismatchHits++;
+    }
+    return { sampleSize, matchHits, mismatchHits, samples };
+}
+
 // ==============================================================================
 // [L9] 核心匹配层 (Core Matching)
 // ==============================================================================
@@ -1711,131 +1817,6 @@ function detectPeerContextSequels(secondaryList) {
         }
     }
     return contextMap;
-}
-
-/**
- * 统计正片集数：排除 PV 与特别篇
- * @param {Array} links - 集链接列表
- * @returns {number} 正片集数
- */
-function countMainEpisodes(links) {
-    if (!Array.isArray(links)) return 0;
-    return links.filter(l => {
-        const t = (l.title || l.name || '').toLowerCase();
-        return !RegexStore.Episode.PV_CHECK.test(t) && !RegexStore.Episode.SPECIAL_CHECK.test(t);
-    }).length;
-}
-
-/**
- * 提取集标题的语义部分：清洗后去除数字，仅保留有语义长度的标题
- * @param {Array} links - 集链接列表
- * @returns {Array<string>} 集标题列表
- */
-function extractEpisodeTitles(links) {
-    if (!Array.isArray(links)) return [];
-    return links.map(l => cleanEpisodeText(l.title || l.name || '').replace(/\d+/g, '').trim())
-                .filter(t => t.length > 1);
-}
-
-/**
- * 集标题采样比对：均匀抽样至多 5 对，统计相似与不相似的命中数
- * @param {Array<string>} titlesP - 主源集标题
- * @param {Array<string>} titlesS - 副源集标题
- * @returns {{sampleSize:number, matchHits:number, mismatchHits:number, samples:Array<string>}}
- */
-function sampleEpisodeTitles(titlesP, titlesS) {
-    const sampleSize = Math.min(titlesP.length, titlesS.length, 5);
-    const samples = [];
-    let matchHits = 0, mismatchHits = 0;
-    for (let i = 0; i < sampleSize; i++) {
-        const idxP = Math.floor(i * titlesP.length / sampleSize);
-        const idxS = Math.floor(i * titlesS.length / sampleSize);
-        const sim  = calculateSimilarity(titlesP[idxP], titlesS[idxS]);
-        if (i < 3) samples.push(`"${titlesP[idxP]}" vs "${titlesS[idxS]}" (${sim.toFixed(2)})`);
-        if (sim > 0.6) matchHits++;
-        else if (sim < 0.3) mismatchHits++;
-    }
-    return { sampleSize, matchHits, mismatchHits, samples };
-}
-
-/**
- * 集标题字符集语种：语言关键字判定只覆盖配音与字幕标识，这里按字符集补充判定
- * @param {string} text - 集标题文本
- * @returns {string} 'JP'（含假名）| 'CN'（含汉字）| 'EN'（含拉丁字母）| 'Unknown'
- */
-function getTitleScriptLanguage(text) {
-    if (!text) return 'Unknown';
-    if (/[\u3041-\u309F\u30A0-\u30FF]/.test(text)) return 'JP';
-    if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(text)) return 'CN';
-    if (/[A-Za-z]/.test(text)) return 'EN';
-    return 'Unknown';
-}
-
-/**
- * 配音版本标识：同一主源对同一配音版本只并入一条结果
- * 标识按配音语言归一（普通话与国语同为国语，港配与粤语同为粤语），字幕与助听标识不计入
- * @param {string} title - 条目标题
- * @returns {string|null} 配音版本标识，无配音标识时为 null
- */
-function getDubVersionLabel(title) {
-    const text = String(title || '');
-    if (/(普通[话話]|[国國][语語]|中文配音|中配|中文)/.test(text)) return '国语';
-    if (/([粤粵][语語]配音|[粤粵]配|[粤粵][语語]|港配|港[语語])/.test(text)) return '粤语';
-    if (/([台臺]配|[台臺][语語])/.test(text)) return '台配';
-    if (/(日[语語]配音|日配)/.test(text)) return '日语';
-    return null;
-}
-
-/**
- * 归并一条副源链接到主源链接：拼接复合 URL 并在标题标签中追加来源
- * @param {Object} targetLink           - 主源链接
- * @param {Object} sourceLink           - 副源链接
- * @param {string} secSource            - 副源名
- * @param {string} currentPrimarySource - 主源名
- * @returns {{url:string, title:string}} 归并后的链接字段
- */
-function mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource) {
-    const secPart = `${secSource}:${sanitizeUrl(sourceLink.url)}`;
-    let url = targetLink.url;
-    if (!url.includes(MERGE_DELIMITER) && !url.startsWith(currentPrimarySource + ':')) {
-        url = `${currentPrimarySource}:${url}`;
-    }
-    url = `${url}${MERGE_DELIMITER}${secPart}`;
-
-    let title = targetLink.title;
-    if (title) {
-        let sLabel = secSource;
-        const sMatch = String(sourceLink.title || '').match(/^【([^】\d]+)(?:\d*)】/);
-        if (sMatch) sLabel = sMatch[1].trim();
-        title = title.replace(/^【([^】]+)】/, (m, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
-    }
-    return { url, title };
-}
-
-/**
- * 按配音版本标识为主源链接选择同标识链接
- * 副源条目的配音版本标识与主源链接的配音版本标识都可判定，且存在集号与特殊类型一致的同标识链接时使用该链接
- * @param {Array}    filteredPLinksWithIndex - 主源过滤后链接列表（元素含 link 与 originalIndex）
- * @param {number}   pIndex                  - 当前选中的链接索引
- * @param {string}   candidateTitle          - 副源番剧标题
- * @param {Function} getCompareTitle         - 取链接比对标题的函数
- * @param {string}   primarySource           - 主源名
- * @returns {number} 调整后的链接索引，标识不可判定或无同标识链接时返回原索引
- */
-export function resolveDubVersionLinkIndex(filteredPLinksWithIndex, pIndex, candidateTitle, getCompareTitle, primarySource) {
-    const candidateLabel = getDubVersionLabel(candidateTitle);
-    if (!candidateLabel) return pIndex;
-
-    const chosenInfo = extractEpisodeInfo(getCompareTitle(filteredPLinksWithIndex[pIndex].link), primarySource);
-    const matched = [];
-    filteredPLinksWithIndex.forEach((item, idx) => {
-        if (getDubVersionLabel(item.link.title || item.link.name) !== candidateLabel) return;
-        const info = extractEpisodeInfo(getCompareTitle(item.link), primarySource);
-        if (info.isSpecial !== chosenInfo.isSpecial || info.isStrictSpecial !== chosenInfo.isStrictSpecial) return;
-        if (info.num !== chosenInfo.num) return;
-        matched.push(idx);
-    });
-    return matched.length === 1 ? matched[0] : pIndex;
 }
 
 /**
@@ -2218,9 +2199,8 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         }
 
         // ── 主副别名交叉比对 ─────────────────────────────────────────────
-        const cleanFn = t => t ? String(t).replace(RegexStore.Clean.YEAR_TAG, '').replace(/【(电影|电视剧)】/g, '').trim() : '';
-        const primaryCandidates = Array.from(new Set([primaryTitleForSim, ...(primaryAnime.aliases || [])].map(cleanFn).filter(Boolean)));
-        const secCandidates     = Array.from(new Set([secTitleForSim,     ...(secAnime.aliases     || [])].map(cleanFn).filter(Boolean)));
+        const primaryCandidates = Array.from(new Set([primaryTitleForSim, ...(primaryAnime.aliases || [])].map(titleForSimilarity).filter(Boolean)));
+        const secCandidates     = Array.from(new Set([secTitleForSim,     ...(secAnime.aliases     || [])].map(titleForSimilarity).filter(Boolean)));
 
         // 主源候选池 × 副源候选池 全量交叉，取最高相似度
         let bestScoreFull = 0, bestScoreBase = 0;
@@ -2465,6 +2445,58 @@ function detectCollectionCandidates(curAnimes) {
         }
     }
     return collectionIds;
+}
+
+/**
+ * 归并一条副源链接到主源链接：拼接复合 URL 并在标题标签中追加来源
+ * @param {Object} targetLink           - 主源链接
+ * @param {Object} sourceLink           - 副源链接
+ * @param {string} secSource            - 副源名
+ * @param {string} currentPrimarySource - 主源名
+ * @returns {{url:string, title:string}} 归并后的链接字段
+ */
+export function mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource) {
+    const secPart = `${secSource}:${sanitizeUrl(sourceLink.url)}`;
+    let url = targetLink.url;
+    if (!url.includes(MERGE_DELIMITER) && !url.startsWith(currentPrimarySource + ':')) {
+        url = `${currentPrimarySource}:${url}`;
+    }
+    url = `${url}${MERGE_DELIMITER}${secPart}`;
+
+    let title = targetLink.title;
+    if (title) {
+        let sLabel = secSource;
+        const sMatch = String(sourceLink.title || '').match(/^【([^】\d]+)(?:\d*)】/);
+        if (sMatch) sLabel = sMatch[1].trim();
+        title = title.replace(/^【([^】]+)】/, (m, content) => `【${content}${DISPLAY_CONNECTOR}${sLabel}】`);
+    }
+    return { url, title };
+}
+
+/**
+ * 按配音版本标识为主源链接选择同标识链接
+ * 副源条目的配音版本标识与主源链接的配音版本标识都可判定，且存在集号与特殊类型一致的同标识链接时使用该链接
+ * @param {Array}    filteredPLinksWithIndex - 主源过滤后链接列表（元素含 link 与 originalIndex）
+ * @param {number}   pIndex                  - 当前选中的链接索引
+ * @param {string}   candidateTitle          - 副源番剧标题
+ * @param {Function} getCompareTitle         - 取链接比对标题的函数
+ * @param {string}   primarySource           - 主源名
+ * @returns {number} 选定的链接索引，标识不可判定或无同标识链接时返回原索引
+ */
+export function resolveDubVersionLinkIndex(filteredPLinksWithIndex, pIndex, candidateTitle, getCompareTitle, primarySource) {
+    const candidateLabel = getDubVersionLabel(candidateTitle);
+    if (!candidateLabel) return pIndex;
+
+    const chosenInfo = extractEpisodeInfo(getCompareTitle(filteredPLinksWithIndex[pIndex].link), primarySource);
+    const matched = [];
+    filteredPLinksWithIndex.forEach((item, idx) => {
+        if (getDubVersionLabel(item.link.title || item.link.name) !== candidateLabel) return;
+        const info = extractEpisodeInfo(getCompareTitle(item.link), primarySource);
+        if (info.isSpecial !== chosenInfo.isSpecial || info.isStrictSpecial !== chosenInfo.isStrictSpecial) return;
+        if (info.num !== chosenInfo.num) return;
+        matched.push(idx);
+    });
+    return matched.length === 1 ? matched[0] : pIndex;
 }
 
 /**

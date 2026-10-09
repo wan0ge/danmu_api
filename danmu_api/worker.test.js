@@ -41,7 +41,7 @@ import { Envs } from "./configs/envs.js";
 import { addAnime, addEpisode, findUrlById, getEpisodeIdFloor, getSearchCache, hasSeasonSpecificPreference, isSearchCacheValid, setSearchCache } from "./utils/cache-util.js";
 import { addFavorite, listFavorites, loadFavorites, removeFavorite, resolveFavoriteForKeyword, saveFavorites } from './utils/favorite-util.js';
 import { candidateMatchesMappingQualifiers, candidateMatchesMappingTitle, parseAutoMatchMappingRules, resolveAutoMatchMapping } from './utils/auto-match-mapping-util.js';
-import { findSecondaryMatches, applyMergeLogic, resolveDubVersionLinkIndex } from "./utils/merge-util.js";
+import { findSecondaryMatches, applyMergeLogic, resolveDubVersionLinkIndex, mergeLinkEntry } from "./utils/merge-util.js";
 import { HTML_TEMPLATE } from './ui/template.js';
 import { apitestJsContent } from './ui/js/apitest.js';
 import { logviewJsContent } from './ui/js/logview.js';
@@ -4485,7 +4485,7 @@ test('merge findSecondaryMatches 同一配音版本只并入一条', () => {
   });
   const titlesOf = (list) => findSecondaryMatches(list.primary, list.secondaries, new Set(), ['aiyifan']).map((a) => a.animeTitle);
 
-  // 主源为粤语版时，另一部作品的粤语版不再并入（只保留分数最高的同语言一条）
+  // 主源为粤语版时，另一部作品的粤语版不并入，只保留分数最高的同语言一条
   assert.deepStrictEqual(titlesOf({
     primary: buildAnime(1, '倚天屠龙记之圣火雄风粤语(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
     secondaries: [
@@ -4560,6 +4560,25 @@ test('merge resolveDubVersionLinkIndex 按配音版本选择主源链接', () =>
   assert.strictEqual(
     resolveDubVersionLinkIndex([filteredLinks[0]], 0, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
     0, '主源无同配音版本链接时保持原链接');
+});
+
+test('merge mergeLinkEntry 拼接复合 URL 并在标题标签中追加来源', () => {
+  const target = { url: 'https://v.qq.com/x/cover/abc/1.html', title: '【qq】 倚天屠龙记之九阳神功(普通话版)' };
+  const aiyifan = { url: 'https://www.yfsp.tv/play/2hRswEx6yr4?id=x', title: '【aiyifan】 720P' };
+
+  const first = mergeLinkEntry(target, aiyifan, 'aiyifan', 'tencent');
+  assert.strictEqual(first.url, 'tencent:https://v.qq.com/x/cover/abc/1.html$$$aiyifan:https://www.yfsp.tv/play/2hRswEx6yr4?id=x', '主源 URL 补来源前缀后再追加副源分段');
+  assert.strictEqual(first.title, '【qq&aiyifan】 倚天屠龙记之九阳神功(普通话版)', '标题标签追加副源标签');
+
+  const second = mergeLinkEntry({ url: first.url, title: first.title }, { url: 'u2', title: '【dandan】 1080P' }, 'dandan', 'tencent');
+  assert.strictEqual(second.url, first.url + '$$$dandan:u2', '已含复合分隔符时直接追加分段');
+  assert.strictEqual(second.title, '【qq&aiyifan&dandan】 倚天屠龙记之九阳神功(普通话版)', '标题标签继续追加');
+
+  const noTag = mergeLinkEntry(target, { url: 'u3', title: '720P' }, 'migu', 'tencent');
+  assert.strictEqual(noTag.title, '【qq&migu】 倚天屠龙记之九阳神功(普通话版)', '副源标题无标签时使用来源名');
+
+  const mismatched = mergeLinkEntry(target, { url: 'u4', title: '【other】 720P' }, 'migu', 'tencent');
+  assert.strictEqual(mismatched.title, '【qq&other】 倚天屠龙记之九阳神功(普通话版)', '标题标签以副源链接自带标签优先');
 });
 
 test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
