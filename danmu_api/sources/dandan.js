@@ -797,6 +797,9 @@ function describeFillCount(inferredCount) {
 // 放送截止依次回退 end、用户系统时间（按当前周推算并额外补两集）、默认集数。
 // 已有集时仅补齐末集之后的集，整部无集时按放送区间推算总集数，推算集数受 MAX_FILL_EPISODE_COUNT 约束。
 export async function fillMissingEpisodes(animeId, detail, episodes, lookupItem = lookupBangumiDataItem, now = Date.now()) {
+  // 补全日志的作品标识：作品 id 与主标题，用于区分同一次流程中不同作品的判定结果
+  const mainTitle = (Array.isArray(detail.titles) ? detail.titles.find((t) => t?.language === '主标题')?.title : null) || detail.animeTitle || '';
+  const fillLabel = mainTitle ? `${animeId} ${mainTitle}` : `${animeId}`;
   const normalEpisodes = episodes.filter((ep) => /^\d+$/.test(String(ep.episodeNumber ?? '')));
   const lastAirTime = normalEpisodes.length > 0
     ? parseTimeValue(normalEpisodes[normalEpisodes.length - 1].airDate)
@@ -807,7 +810,7 @@ export async function fillMissingEpisodes(animeId, detail, episodes, lookupItem 
   const item = await lookupItem(detail, animeId);
   const beginTime = parseTimeValue(item?.begin) ?? extractBroadcastStart(detail.metadata);
   if (beginTime === null) {
-    log("info", "[dandan] 集补全跳过：放送开始时间不可知");
+    log("info", `[dandan] 集补全跳过（${fillLabel}）：放送开始时间不可知`);
     return episodes;
   }
   const endTime = parseTimeValue(item?.end);
@@ -816,33 +819,33 @@ export async function fillMissingEpisodes(animeId, detail, episodes, lookupItem 
     let totalCount;
     if (endTime !== null) {
       totalCount = countEpisodesWeekly(beginTime, endTime);
-      log("info", `[dandan] 集补全（整部无集，按放送区间）: 应有 ${describeFillCount(totalCount)}`);
+      log("info", `[dandan] 集补全（${fillLabel}，整部无集，按放送区间）: 应有 ${describeFillCount(totalCount)}`);
     } else if (Number.isFinite(now)) {
       totalCount = countEpisodesWeekly(beginTime, now) + 2;
-      log("info", `[dandan] 集补全（整部无集，放送截止不可知按当前周并额外补两集）: 应有 ${describeFillCount(totalCount)}`);
+      log("info", `[dandan] 集补全（${fillLabel}，整部无集，放送截止不可知按当前周并额外补两集）: 应有 ${describeFillCount(totalCount)}`);
     } else {
       totalCount = DEFAULT_FILL_EPISODE_COUNT;
-      log("info", `[dandan] 集补全（整部无集，放送截止与系统时间均不可知，按默认集数）: 应有 ${describeFillCount(totalCount)}`);
+      log("info", `[dandan] 集补全（${fillLabel}，整部无集，放送截止与系统时间均不可知，按默认集数）: 应有 ${describeFillCount(totalCount)}`);
     }
     return buildFilledEpisodes(animeId, episodes, Math.max(1, Math.min(MAX_FILL_EPISODE_COUNT, totalCount)));
   }
 
   if (endTime === null) {
-    log("info", "[dandan] 集补全跳过：已存在集且放送截止不可知");
+    log("info", `[dandan] 集补全跳过（${fillLabel}）：已存在集且放送截止不可知`);
     return episodes;
   }
   // 末集放送日期与放送结束相同或相差不超过两天，说明中途有周未放送，集数正确
   if (lastAirTime !== null && Math.abs(endTime - lastAirTime) <= 2 * DAY_MS) {
-    log("info", "[dandan] 集补全跳过：末集放送日期已对齐放送截止（存在停播周）");
+    log("info", `[dandan] 集补全跳过（${fillLabel}）：末集放送日期已对齐放送截止`);
     return episodes;
   }
   const inferredCount = countEpisodesWeekly(beginTime, endTime);
   const totalCount = Math.min(MAX_FILL_EPISODE_COUNT, inferredCount);
   if (totalCount <= normalEpisodes.length) {
-    log("info", `[dandan] 集补全跳过：按放送区间应有 ${totalCount} 集，未超过现有 ${normalEpisodes.length} 集`);
+    log("info", `[dandan] 集补全跳过（${fillLabel}）：按放送区间应有 ${totalCount} 集，未超过现有 ${normalEpisodes.length} 集`);
     return episodes;
   }
-  log("info", `[dandan] 集补全（补齐末集之后的集）: 按放送区间应有 ${describeFillCount(inferredCount)}，现有 ${normalEpisodes.length} 集，补 ${totalCount - normalEpisodes.length} 集`);
+  log("info", `[dandan] 集补全（${fillLabel}，补齐末集之后的集）: 按放送区间应有 ${describeFillCount(inferredCount)}，现有 ${normalEpisodes.length} 集，补 ${totalCount - normalEpisodes.length} 集`);
   return buildFilledEpisodes(animeId, episodes, totalCount);
 }
 
