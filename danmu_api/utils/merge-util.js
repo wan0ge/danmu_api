@@ -170,7 +170,7 @@ const RegexStore = {
         FINAL:            /(?:The\s+)?Final\s+Season/gi,
         NORM:             /(?:Season|S)\s*(\d+)/gi,
         CN:               /第\s*([一二三四五六七八九十]+)\s*季/g,
-        ROMAN:            /(\s|^)(IV|III|II|I)(\s|$)/g,
+        ROMAN:            /(\s|^)(IV|III|II)(\s|$)/g,       // 不含 I：独立出现的 I 与英文代词同形，不作季度标记
         INFO_STRONG:      /(?:season|s|第)\s*[0-9一二三四五六七八九十]+\s*(?:季|期|部(?!分))?/gi,
         PART_INFO_STRONG: /(?:part|p|第)\s*\d+\s*(?:部分)?/gi,
         PART_ANY:         /(?:part|p)\s*\d+/gi,
@@ -422,9 +422,9 @@ function cleanText(text) {
     clean = clean.replace(RegexStore.Season.NORM,  '第$1季');
     // 中文数字季度转阿拉伯数字
     clean = clean.replace(RegexStore.Season.CN, (m, num) => `第${convertChineseNumber(num)}季`);
-    // 罗马数字季度转阿拉伯数字
+    // 罗马数字季度转阿拉伯数字（I 不在其列：英文标题中的独立 I 是代词，不是季度）
     clean = clean.replace(RegexStore.Season.ROMAN, (match, p1, roman, p2) => {
-        const rMap = { 'I':'1','II':'2','III':'3','IV':'4' };
+        const rMap = { 'II':'2','III':'3','IV':'4' };
         return `${p1}第${rMap[roman]}季${p2}`;
     });
     // 语言标识标准化
@@ -1411,6 +1411,10 @@ function findBestAlignmentOffset(
     });
     const seasonShift = (minNormalA !== null && minNormalB !== null) ? (minNormalA - minNormalB) : null;
 
+    // 集号基准：两侧正片的最小集号相同，说明双方采用同一套编号。基准不同（一方本季从 1 起、另一方承接
+    // 上一季顺延编号）时，同一号码落在双方各自不同的集上，此时号码相等不构成集号对齐的证据。
+    const sharesEpisodeBase = (seasonShift === 0);
+
     // 动态计算搜索范围，以估算的季度偏移为中心向外延伸
     const baseRange  = 15;
     const targetShift = (seasonShift !== null) ? -seasonShift : 0;
@@ -1480,7 +1484,7 @@ function findBestAlignmentOffset(
             rawTextScoreSum += sim;
 
             // ── 数字严格相等奖励 ──────────────────────────────────────
-            if (infoA.num !== null && infoB.num !== null && infoA.num === infoB.num)
+            if (sharesEpisodeBase && infoA.num !== null && infoB.num !== null && infoA.num === infoB.num)
                 pairScore += MergeWeights.EP_ALIGN.NUMERIC_MATCH;
 
             // ── 断层惩罚（防异构/占位区污染） ─────────────────────────
@@ -1518,9 +1522,9 @@ function findBestAlignmentOffset(
             }
             // 匹配数量规模奖励（对齐对越多越可信）
             finalScore += Math.min(matchCount * 0.15, 1.5);
-            // 零偏移奖励：主副源出现任意零差对集即表明集号一致，给予强信号
+            // 零偏移奖励：集号基准相同时，出现任意零差对集即表明集号一致，给予强信号
             const zeroDiffCount = numericDiffs.get('0.0000') || 0;
-            if (zeroDiffCount > 0) {
+            if (sharesEpisodeBase && zeroDiffCount > 0) {
                 finalScore += MergeWeights.EP_ALIGN.ZERO_DIFF_BONUS_BASE;
                 finalScore += zeroDiffCount * MergeWeights.EP_ALIGN.ZERO_DIFF_BONUS_PER_HIT;
             }

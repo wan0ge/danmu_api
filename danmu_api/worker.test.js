@@ -4534,6 +4534,7 @@ test('merge applyMergeLogic 集对齐不绕过年份校验', async () => {
   const primary = buildAnime(1, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epLinks(42, '倚天屠龙记[普通话版]'));
   const wrong   = buildAnime(2, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epLinks(40, '倚天屠龙记'));
 
+  Globals.animes = [primary, wrong];
   await applyMergeLogic([primary, wrong]);
 
   assert.strictEqual(primary.links.some((link) => String(link.url).includes('aiyifan')), false, '年份差 2 年的同名不同作品不因集对齐而关联');
@@ -4580,6 +4581,168 @@ test('merge mergeLinkEntry 拼接复合 URL 并在标题标签中追加来源', 
   const mismatched = mergeLinkEntry(target, { url: 'u4', title: '【other】 720P' }, 'migu', 'tencent');
   assert.strictEqual(mismatched.title, '【qq&other】 倚天屠龙记之九阳神功(普通话版)', '标题标签以副源链接自带标签优先');
 });
+
+test('merge findSecondaryMatches 英文别名中的独立 I 不作季度标记', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, aliases) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases,
+    source,
+    typeDescription: 'TV动画',
+    startDate: /(\d{4})/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: 12 }, (_, i) => ({ title: `第${i + 1}集` })),
+    episodeCount: 12,
+  });
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+  const englishAliases = ['相反的你和我', 'Seihantai na Kimi to Boku', '正反対な君と僕', 'You and I Are Polar Opposites'];
+
+  const primary = buildAnime(1, '正相反的你与我(2026)【TV动画】from dandan', 'dandan', englishAliases);
+
+  // 别名中的英文标题含独立代词 I，不得被读成第 1 季标记而掩盖与第一季的季度冲突
+  assert.strictEqual(matched(primary, buildAnime(2, '正相反的你与我 第二季(2026)【TV动画】from bahamut', 'bahamut',
+    [...englishAliases, '相反的你和我 第二季', 'You and I are Polar Opposites Season 2'])), false, '含英文标题别名的第二季仍与第一季冲突');
+
+  assert.strictEqual(matched(primary, buildAnime(3, '正相反的你与我 第二季(2026)【TV动画】from animeko', 'animeko',
+    ['相反的你和我 第二季', '正相反的你与我 第二季'])), false, '仅中文别名的第二季与第一季冲突');
+
+  assert.strictEqual(matched(primary, buildAnime(4, '正相反的你与我(2026)【TV动画】from animeko', 'animeko',
+    englishAliases)), true, '同季候选不受影响');
+});
+
+test('merge applyMergeLogic 集号基准不同时按季度偏移对齐', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2026-07-05T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+  const mergedOf = (series, source) => Globals.animes.find((anime) => anime.animeTitle.startsWith(series) && anime.animeTitle.includes(`from dandan&${source}`));
+  const mergedPairs = (anime, source) => anime.links.filter((link) => String(link.url).includes('$$$' + source + ':')).length;
+
+  // 主源本季从 1 起编号、副源承接上一季（13 起），双方第 13 集同题
+  const primary = buildAnime(1, '正相反的你与我 第二季(2026)【TV动画】from dandan', 'dandan', [
+    '第1话 クリスマスイヴ', '第2话 冬の夜のジレンマ', '第3话 行く年来る年', '第4话 新学期', '第5话 バレンタイン',
+    '第6话 春の手前', '第7话 グラデーション', '第8话 この先', '第9话 過去と今', '第10话 想いと選択',
+    '第11话 居場所', '第12话 スタートライン', '第13话 平安夜', 'C1 Opening', 'C2 Ending',
+  ]);
+  const secondary = buildAnime(2, '正相反的你与我 第二季(2026)【TV动画】from animeko', 'animeko', [
+    '第13话 平安夜', '第14话 冬夜的两难', '第15话 送旧迎新', '第16话 新学期', '第17话 情人节',
+    '第18话 春天的前夕', '第19话 渐层', '第20话 在这之后', '第21话 过去和现在', '第22话 想法和选择',
+    '第23话 容身之處', '第24话 起点', '第25话 相反的你和我',
+  ]);
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = mergedOf('正相反的你与我 第二季', 'animeko');
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 15, '13 个正片各自对齐，番外不触发补全');
+  assert.strictEqual(mergedPairs(merged, 'animeko'), 13, '副源 13 集全部与主源对应集合并');
+
+  // 反向：主源承接上一季（13 起）、副源本季从 1 起
+  const sequelNumbered = buildAnime(3, '无限滑板 第二季(2026)【TV动画】from dandan', 'dandan', [
+    '第13话 起始', '第14话 第二次', '第15话 第三次', '第16话 第四次', '第17话 第五次',
+    '第18话 第六次', '第19话 第七次', '第20话 第八次', '第21话 第九次', '第22话 第十次',
+    '第23话 第十一次', '第24话 第十二次', '第25话 终点',
+  ]);
+  const seasonNumbered = buildAnime(4, '无限滑板 第二季(2026)【TV动画】from animeko', 'animeko', [
+    '第1话 起始', '第2话 第二次', '第3话 第三次', '第4话 第四次', '第5话 第五次',
+    '第6话 第六次', '第7话 第七次', '第8话 第八次', '第9话 第九次', '第10话 第十次',
+    '第11话 第十一次', '第12话 第十二次', '第13话 终点',
+  ]);
+
+  Globals.animes = [sequelNumbered, seasonNumbered];
+  await applyMergeLogic([sequelNumbered, seasonNumbered]);
+
+  const reverseMerged = mergedOf('无限滑板 第二季', 'animeko');
+  assert.notStrictEqual(reverseMerged, undefined, '反向场景产生合并条目');
+  assert.strictEqual(reverseMerged.links.length, 13, '主源顺延编号时同样按季度偏移对齐');
+});
+
+test('merge applyMergeLogic 单集断层按零偏移方向对齐', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
+  const buildAnime = (animeId, source, nums) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle: `断层番剧(2026)【TV动画】from ${source}`,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2026-04-05T00:00:00.000Z',
+    links: nums.map((num, i) => ({ title: `【${source}】 第${num}集`, url: `${source}:${animeId}:${i}:${num}` })),
+    episodeCount: nums.length,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:(\\d+)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+
+  // 主源缺第 2 集形成单集断层，副源连续：只按号码相等的方向对齐，不得整体错位
+  const gap = [1, ...Array.from({ length: 11 }, (_, i) => i + 3)];
+  const primary   = buildAnime(1, 'dandan', gap);
+  const secondary = buildAnime(2, 'animeko', Array.from({ length: 13 }, (_, i) => i + 1));
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from dandan&animeko'));
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 13, '12 集按号码对上，副源多出的 1 集落到末尾');
+  assert.deepStrictEqual(numbersOf(merged, 'dandan'), gap, '主源集号保持原有顺序');
+  assert.deepStrictEqual(numbersOf(merged, 'animeko'), [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 2], '副源按号码对齐，落单集补在末尾');
+});
+
+test('merge applyMergeLogic 多季划分与合集按季切片对齐', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&bahamut' });
+  const buildAnime = (animeId, animeTitle, source, count) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2023-04-12T00:00:00.000Z',
+    links: Array.from({ length: count }, (_, i) => ({ title: `【${source}】 第${i + 1}集`, url: `${source}:${animeId}:${i}:${i + 1}` })),
+    episodeCount: count,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:(\\d+)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+
+  // 主源按季划分（S1 11 集 / S2 13 集 / S3 11 集），副源为整部合集（35 集）
+  const collection = buildAnime(101, '我推的孩子(2023)【TV动画】from bahamut', 'bahamut', 35);
+  const seasons = [
+    buildAnime(201, '我推的孩子 第一季(2023)【TV动画】from dandan', 'dandan', 11),
+    buildAnime(202, '我推的孩子 第二季(2023)【TV动画】from dandan', 'dandan', 13),
+    buildAnime(203, '我推的孩子 第三季(2023)【TV动画】from dandan', 'dandan', 11),
+  ];
+
+  Globals.animes = [collection, ...seasons];
+  await applyMergeLogic([collection, ...seasons]);
+
+  const merged = (seasonTitle) => Globals.animes.find((anime) => anime.animeTitle.startsWith(seasonTitle) && anime.animeTitle.includes('from dandan&bahamut'));
+  for (const [title, count] of [['我推的孩子 第一季', 11], ['我推的孩子 第二季', 13], ['我推的孩子 第三季', 11]]) {
+    const entry = merged(title);
+    assert.notStrictEqual(entry, undefined, `${title} 与合集关联`);
+    assert.strictEqual(entry.links.length, count, `${title} 与合集对应季的集数一致`);
+  }
+  assert.deepStrictEqual(numbersOf(merged('我推的孩子 第一季'), 'bahamut'), Array.from({ length: 11 }, (_, i) => i + 1), 'S1 对应合集第 1~11 集');
+  assert.deepStrictEqual(numbersOf(merged('我推的孩子 第二季'), 'bahamut'), Array.from({ length: 13 }, (_, i) => i + 12), 'S2 对应合集第 12~24 集');
+  assert.deepStrictEqual(numbersOf(merged('我推的孩子 第三季'), 'bahamut'), Array.from({ length: 11 }, (_, i) => i + 25), 'S3 对应合集第 25~35 集');
+});
+
 
 test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
 
