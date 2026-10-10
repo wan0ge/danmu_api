@@ -4905,6 +4905,43 @@ test('merge applyMergeLogic 映射表特权通道不受年份判定约束', asyn
   }
 });
 
+test('merge applyMergeLogic 映射表集路由下的配音版本链接选择', async () => {
+  const rule = '倚天屠龙记(粤语)(2003)【电视剧】@aiyifan -> 倚天屠龙记(2003)【电视剧】@tencent | E1~E12>E1~E12';
+  const primaryTitles = [];
+  for (let i = 1; i <= 12; i++) primaryTitles.push(`第${i}集 (普通话版)`, `第${i}集 (粤语版)`);
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: '2003-01-01T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan', CUSTOM_MERGE_RULES: rule });
+  const primary   = buildAnime(1, '倚天屠龙记(2003)【电视剧】from tencent', 'tencent', primaryTitles);
+  const secondary = buildAnime(2, '倚天屠龙记(粤语)(2003)【电视剧】from aiyifan', 'aiyifan',
+    Array.from({ length: 12 }, (_, i) => `第${i + 1}集`));
+
+  try {
+    Globals.animes = [primary, secondary];
+    await applyMergeLogic([primary, secondary]);
+
+    const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from tencent&aiyifan'));
+    assert.notStrictEqual(merged, undefined, '产生合并条目');
+    const mergedLinks = merged.links.filter((link) => String(link.url).includes('$$$'));
+    assert.strictEqual(merged.links.length, 24, '主源 24 条链接全部保留');
+    assert.strictEqual(mergedLinks.length, 12, '集路由下 12 集各并入一条主源链接');
+    assert.ok(mergedLinks.every((link) => link.title.includes('粤语版')), '粤语副源经集路由并入粤语链接');
+  } finally {
+    Globals.init({ LOG_LEVEL: 'error' });
+  }
+});
+
 
 test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
 

@@ -805,6 +805,15 @@ function getDubVersionLabel(title) {
     return null;
 }
 
+/**
+ * 标题是否含配音标识：按中文配音标识词表判定，含国语与粤语的通配写法
+ * @param {string} title - 比对用标题
+ * @returns {boolean} 是否含配音标识
+ */
+function hasDubVersionMarker(title) {
+    return !!title.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(title);
+}
+
 // ==============================================================================
 // [L7] 领域冲突检测层 (Domain Conflict Detection)
 // ==============================================================================
@@ -2046,7 +2055,7 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
     // [性能优化] 提取循环不变量，避免在内层循环中重复计算
     const rawPrimaryTitle    = primaryAnime.animeTitle || '';
     const primaryTitleForSim = titleForSimilarity(rawPrimaryTitle);
-    const isPrimaryDub       = !!(primaryTitleForSim.match(RegexStore.Lang.CN_DUB_VER)) || RegexStore.Lang.CN.test(primaryTitleForSim);
+    const isPrimaryDub       = hasDubVersionMarker(primaryTitleForSim);
     const isPrimaryDubVersionYear = isPrimaryDub && DUB_VERSION_YEAR_SOURCES.has(primaryAnime.source);
     const isPrimaryIgnoredYear = primaryAnime.source === 'hanjutv';
     const primaryDate        = (rawPrimaryTitle.includes('N/A') || isPrimaryIgnoredYear) ? { year: null, month: null } : parseDate(primaryAnime.startDate);
@@ -2108,7 +2117,7 @@ export function findSecondaryMatches(primaryAnime, secondaryList, collectionAnim
         const secDate         = (rawSecTitle.includes('N/A') || isSecIgnoredYear) ? { year: null, month: null } : parseDate(secAnime.startDate);
         const secLang         = getLanguageType(rawSecTitle);
         const secTitleForSim  = titleForSimilarity(rawSecTitle);
-        const isSecDub        = !!(secTitleForSim.match(RegexStore.Lang.CN_DUB_VER)) || RegexStore.Lang.CN.test(secTitleForSim);
+        const isSecDub        = hasDubVersionMarker(secTitleForSim);
         const isSecDubVersionYear = isSecDub && DUB_VERSION_YEAR_SOURCES.has(secAnime.source);
         const isDubVersionYearRelation = isPrimaryDubVersionYear || isSecDubVersionYear;
         const secCount        = secAnime.episodeCount || (secAnime.links ? secAnime.links.length : 0);
@@ -3023,8 +3032,8 @@ async function processMergeTask(params) {
                     const derivedDate        = (String(derivedAnime.animeTitle || '').includes('N/A') || currentPrimarySource === 'hanjutv') ? { year: null, month: null } : parseDate(derivedAnime.startDate);
                     const matchDate          = (String(match.animeTitle || '').includes('N/A') || secSource === 'hanjutv') ? { year: null, month: null } : parseDate(match.startDate);
                     const isDubVersionYearRelation =
-                        (DUB_VERSION_YEAR_SOURCES.has(currentPrimarySource) && (!!derivedTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(derivedTitleForSim))) ||
-                        (DUB_VERSION_YEAR_SOURCES.has(secSource) && (!!matchTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(matchTitleForSim)));
+                        (DUB_VERSION_YEAR_SOURCES.has(currentPrimarySource) && hasDubVersionMarker(derivedTitleForSim)) ||
+                        (DUB_VERSION_YEAR_SOURCES.has(secSource) && hasDubVersionMarker(matchTitleForSim));
                     const dateRelation = resolveDateRelation({
                         primaryAnime: derivedAnime,
                         candidateAnime: match,
