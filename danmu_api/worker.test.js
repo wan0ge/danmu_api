@@ -4872,6 +4872,39 @@ test('merge applyMergeLogic 配音版本副源并入同配音版本链接', asyn
     Array.from({ length: 6 }, (_, i) => `【tencent&aiyifan】 第${i + 1}集 (粤语版)`), '粤语副源并入粤语链接，普通话链接保持独立');
 });
 
+test('merge applyMergeLogic 映射表特权通道不受年份判定约束', async () => {
+  const rule = '倚天屠龙记(2009)【电视剧】@aiyifan -> 倚天屠龙记(2001)【电视剧】@tencent';
+  const buildAnime = (animeId, animeTitle, source, count) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: count }, (_, i) => ({ title: `【${source}】 第${i + 1}集`, url: `${source}:${animeId}:${i}:${i + 1}` })),
+    episodeCount: count,
+  });
+  const mergedWithRule = async (ruleText, yearA, yearB) => {
+    Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan', CUSTOM_MERGE_RULES: ruleText });
+    const primary   = buildAnime(1, `倚天屠龙记(${yearA})【电视剧】from tencent`, 'tencent', 12);
+    const secondary = buildAnime(2, `倚天屠龙记(${yearB})【电视剧】from aiyifan`, 'aiyifan', 12);
+    Globals.animes = [primary, secondary];
+    await applyMergeLogic([primary, secondary]);
+    return Globals.animes.some((anime) => String(anime.animeTitle).includes('from tencent&aiyifan'));
+  };
+
+  try {
+    // 映射表为用户自定义的最高优先级，命中后标题匹配侧与集对齐侧都不再作年份判定
+    assert.strictEqual(await mergedWithRule(rule, 2001, 2009), true, '特权通道下年份差 8 年的同名不同作品照常合并');
+    assert.strictEqual(await mergedWithRule(rule, 2001, 2001), true, '年份一致时特权通道合并');
+    assert.strictEqual(await mergedWithRule('', 2001, 2009), false, '未命中映射表时仍按年份关系判定');
+  } finally {
+    Globals.init({ LOG_LEVEL: 'error' });
+  }
+});
+
 
 test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
 

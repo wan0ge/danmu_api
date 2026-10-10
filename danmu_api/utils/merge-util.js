@@ -3016,27 +3016,30 @@ async function processMergeTask(params) {
                 const isAnyCollection = collectionAnimeIds.has(pAnime.animeId) || collectionAnimeIds.has(match.animeId);
 
                 // ── 年份关系校验：与标题匹配侧沿用同一套判定 ──────────────────
-                const derivedTitleForSim = titleForSimilarity(derivedAnime.animeTitle);
-                const matchTitleForSim   = titleForSimilarity(match.animeTitle);
-                const derivedDate        = (String(derivedAnime.animeTitle || '').includes('N/A') || currentPrimarySource === 'hanjutv') ? { year: null, month: null } : parseDate(derivedAnime.startDate);
-                const matchDate          = (String(match.animeTitle || '').includes('N/A') || secSource === 'hanjutv') ? { year: null, month: null } : parseDate(match.startDate);
-                const isDubVersionYearRelation =
-                    (DUB_VERSION_YEAR_SOURCES.has(currentPrimarySource) && (!!derivedTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(derivedTitleForSim))) ||
-                    (DUB_VERSION_YEAR_SOURCES.has(secSource) && (!!matchTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(matchTitleForSim)));
-                const dateRelation = resolveDateRelation({
-                    primaryAnime: derivedAnime,
-                    candidateAnime: match,
-                    primaryDate: derivedDate,
-                    candidateDate: matchDate,
-                    isDubVersionYearRelation,
-                    isAnyCollection,
-                    isSeasonExactMatch: hasSameSeasonMarker(derivedTitleForSim, matchTitleForSim, derivedAnime.typeDescription, match.typeDescription, derivedAnime.aliases, match.aliases),
-                    hasStructureConflict: checkTitleSubtitleConflict(derivedAnime.animeTitle, match.animeTitle, derivedDate.year !== null && matchDate.year !== null),
-                    contentProbe: probeContentMatch(derivedAnime, match)
-                });
-                if (!dateRelation.allowed) {
-                    log("info", `${logPrefix} 集对齐但年份关系不允许关联: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (对齐 ${mergedCount} 集)`);
-                    continue;
+                // 映射表特权通道为最高优先级，命中后不参与年份判定
+                if (!customRule) {
+                    const derivedTitleForSim = titleForSimilarity(derivedAnime.animeTitle);
+                    const matchTitleForSim   = titleForSimilarity(match.animeTitle);
+                    const derivedDate        = (String(derivedAnime.animeTitle || '').includes('N/A') || currentPrimarySource === 'hanjutv') ? { year: null, month: null } : parseDate(derivedAnime.startDate);
+                    const matchDate          = (String(match.animeTitle || '').includes('N/A') || secSource === 'hanjutv') ? { year: null, month: null } : parseDate(match.startDate);
+                    const isDubVersionYearRelation =
+                        (DUB_VERSION_YEAR_SOURCES.has(currentPrimarySource) && (!!derivedTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(derivedTitleForSim))) ||
+                        (DUB_VERSION_YEAR_SOURCES.has(secSource) && (!!matchTitleForSim.match(RegexStore.Lang.CN_DUB_VER) || RegexStore.Lang.CN.test(matchTitleForSim)));
+                    const dateRelation = resolveDateRelation({
+                        primaryAnime: derivedAnime,
+                        candidateAnime: match,
+                        primaryDate: derivedDate,
+                        candidateDate: matchDate,
+                        isDubVersionYearRelation,
+                        isAnyCollection,
+                        isSeasonExactMatch: hasSameSeasonMarker(derivedTitleForSim, matchTitleForSim, derivedAnime.typeDescription, match.typeDescription, derivedAnime.aliases, match.aliases),
+                        hasStructureConflict: checkTitleSubtitleConflict(derivedAnime.animeTitle, match.animeTitle, derivedDate.year !== null && matchDate.year !== null),
+                        contentProbe: probeContentMatch(derivedAnime, match)
+                    });
+                    if (!dateRelation.allowed) {
+                        log("info", `${logPrefix} 集对齐但年份关系不允许关联: [${currentPrimarySource}] ${logTitleA} <-> [${secSource}] ${logTitleB} (对齐 ${mergedCount} 集)`);
+                        continue;
+                    }
                 }
 
                 // ── 覆盖率校验 ────────────────────────────────────────────────
