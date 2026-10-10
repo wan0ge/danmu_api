@@ -4611,6 +4611,33 @@ test('merge findSecondaryMatches 英文别名中的独立 I 不作季度标记',
     englishAliases)), true, '同季候选不受影响');
 });
 
+test('merge findSecondaryMatches 中文数字季号取完整数字', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: 'TV动画',
+    startDate: /(\d{4})/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: 12 }, (_, i) => ({ title: `第${i + 1}集` })),
+    episodeCount: 12,
+  });
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+
+  // 中文季号超过十时须取完整数字，仅取首字会把第十三季与第十五季一同归一为第 10 季
+  assert.strictEqual(matched(
+    buildAnime(1, '长篇番剧 第十三季(2024)【TV动画】from dandan', 'dandan'),
+    buildAnime(2, '长篇番剧 第十五季(2026)【TV动画】from bahamut', 'bahamut')),
+    false, '第十三季与第十五季互不匹配');
+
+  assert.strictEqual(matched(
+    buildAnime(3, '长篇番剧 第十三季(2024)【TV动画】from dandan', 'dandan'),
+    buildAnime(4, '长篇番剧 第十三季(2024)【TV动画】from bahamut', 'bahamut')),
+    true, '同为第十三季的候选仍可匹配');
+});
+
 test('merge applyMergeLogic 集号基准不同时按季度偏移对齐', async () => {
   Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
   const buildAnime = (animeId, animeTitle, source, titles) => ({
@@ -4741,6 +4768,43 @@ test('merge applyMergeLogic 多季划分与合集按季切片对齐', async () =
   assert.deepStrictEqual(numbersOf(merged('我推的孩子 第一季'), 'bahamut'), Array.from({ length: 11 }, (_, i) => i + 1), 'S1 对应合集第 1~11 集');
   assert.deepStrictEqual(numbersOf(merged('我推的孩子 第二季'), 'bahamut'), Array.from({ length: 13 }, (_, i) => i + 12), 'S2 对应合集第 12~24 集');
   assert.deepStrictEqual(numbersOf(merged('我推的孩子 第三季'), 'bahamut'), Array.from({ length: 11 }, (_, i) => i + 25), 'S3 对应合集第 25~35 集');
+});
+
+test('merge applyMergeLogic 非整数集号按番外落单', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&bahamut' });
+  const buildAnime = (animeId, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle: `一拳超人 第三季(2025)【TV动画】from ${source}`,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2025-10-05T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:([^$]*)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => m[1]);
+
+  // 副源在正片中间插入非整数集号的番外（巴哈此类番外如「24.5 集」），它不得占用正片位置
+  const primary   = buildAnime(1, 'dandan', Array.from({ length: 12 }, (_, i) => `第${i + 1}话`));
+  const secondary = buildAnime(2, 'bahamut', [
+    '第1集', '第2集', '第3集', '第4集', '第5集', '第5.5集',
+    '第6集', '第7集', '第8集', '第9集', '第10集', '第11集', '第12集',
+  ]);
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from dandan&bahamut'));
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 13, '12 集正片各自对齐，番外另占一条链接');
+  assert.deepStrictEqual(numbersOf(merged, 'dandan'), Array.from({ length: 12 }, (_, i) => `第${i + 1}话`), '主源正片按原有集号并入');
+  assert.deepStrictEqual(numbersOf(merged, 'bahamut'), [...Array.from({ length: 12 }, (_, i) => `第${i + 1}集`), '第5.5集'], '副源正片按集号对应，5.5 集沉至末尾不占用正片位置');
+  assert.strictEqual(String(merged.links[12].url).includes('$$$'), false, '番外链接不含副源分段，保持落单');
 });
 
 
