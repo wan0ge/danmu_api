@@ -155,8 +155,8 @@ async function fetchCdnLatestVersion(packageName) {
  * 智能选择数据源：比较自定义构建与官方版本的版本号决定使用哪个
  *
  * 切换规则：
- * - 自定义版本 >= 官方版本 → 使用自定义源（正常维护状态）
- * - 官方版本 > 自定义版本 → 切换到官方源（自定义已停止维护）
+ * - 官方版本领先自定义版本不足两个版本 → 使用自定义源（正常维护状态）
+ * - 官方版本领先自定义版本两个版本及以上 → 切换到官方源（自定义已停止维护）
  * - 版本查询失败 → 默认使用自定义源
  *
  * @returns {Promise<'custom'|'official'>} 应使用的数据源标识
@@ -179,8 +179,8 @@ async function selectBestDataSource() {
             return 'custom';
         }
 
-        const cmp = compareVersions(customVer, officialVer);
-        const selected = cmp >= 0 ? 'custom' : 'official';
+        // 官方版本领先两个版本及以上才切换到官方源
+        const selected = compareVersions(officialVer, customVer) >= 2 ? 'official' : 'custom';
 
         log("info", `[system] [Bangumi-Data] 版本对比: @wan0ge/bangumi-data@${customVer} vs bangumi-data@${officialVer} => 使用${selected === 'custom' ? '自定义' : '官方'}源`);
 
