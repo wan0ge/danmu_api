@@ -2844,8 +2844,8 @@ async function processMergeTask(params) {
                         // ── 执行 URL 合并 ────────────────────────────────────────
                         const { url: newMergedUrl, title: newMergedTitle } = mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource);
 
-                        mappingEntries.push({ idx: pIndex, text: `   [已路由映射] ${pTitleShort} <-> ${sTitleShort} (Rule: E${sNum}>E${targetPNum})` });
-                        matchedPIndices.add(pIndex);
+                        mappingEntries.push({ idx: targetPIndex, text: `   [已路由映射] ${pTitleShort} <-> ${sTitleShort} (Rule: E${sNum}>E${targetPNum})` });
+                        matchedPIndices.add(targetPIndex);
                         mergedCount++;
                         pendingMutations.push({ linkIndex: originalPIndex, newUrl: newMergedUrl, newTitle: newMergedTitle });
                     } else {
@@ -2991,8 +2991,8 @@ async function processMergeTask(params) {
                         // ── 执行 URL 合并 ────────────────────────────────────────
                         const { url: newMergedUrl, title: newMergedTitle } = mergeLinkEntry(targetLink, sourceLink, secSource, currentPrimarySource);
 
-                        mappingEntries.push({ idx: orphanItem.relativeIndex, text: `   [匹配] ${pTitleShort} <-> ${sTitleShort}` });
-                        matchedPIndices.add(pIndex);
+                        mappingEntries.push({ idx: targetPIndex, text: `   [匹配] ${pTitleShort} <-> ${sTitleShort}` });
+                        matchedPIndices.add(targetPIndex);
                         mergedCount++;
                         pendingMutations.push({ linkIndex: originalPIndex, newUrl: newMergedUrl, newTitle: newMergedTitle });
                     } else {
