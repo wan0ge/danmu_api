@@ -428,6 +428,55 @@ test('merge applyMergeLogic 集号基准不同时按季度偏移对齐', async (
   assert.notStrictEqual(reverseMerged, undefined, '反向场景产生合并条目');
   assert.strictEqual(reverseMerged.links.length, 13, '主源顺延编号时同样按季度偏移对齐');
 });
+
+test('merge applyMergeLogic 副源分部集号自第二话起时按集号对齐', async () => {
+  Globals.init({
+    LOG_LEVEL: 'error',
+    MERGE_SOURCE_PAIRS: 'dandan&animeko',
+    CUSTOM_MERGE_RULES: [
+      '飙马野郎 JOJO的奇妙冒险 第二&第三赛段(2026)【WEB动画】@animeko -> 飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】@dandan',
+      '飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【WEB动画】@animeko -> 飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】@dandan',
+    ].join(';'),
+  });
+  const buildAnime = (animeId, animeTitle, source, typeDescription, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: 'web',
+    typeDescription,
+    startDate: '2026-03-18T16:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:第(\\d+)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+
+  // 副源「第二&第三赛段」集号自第 2 话起（第 1 话由同一来源的「第一赛段」提供），
+  // 两侧最小集号相差 1 时仍按集号对齐，不得整体错位
+  const primary = buildAnime(19287, '飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】from dandan', 'dandan', '网络放送', [
+    '第1话 飙马野郎', '第2话 マウンテン・ティムへの依頼', '第3话 砂漠で生まれたならず者', '第4话 悪魔の手のひら',
+    '第5话', '第6话', '第7话', '第8话',
+  ]);
+  const stage1  = buildAnime(551918, '飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【WEB动画】from animeko', 'animeko', 'WEB动画', ['第1话 飙马野郎']);
+  const stage23 = buildAnime(639938, '飙马野郎 JOJO的奇妙冒险 第二&第三赛段(2026)【WEB动画】from animeko', 'animeko', 'WEB动画', [
+    '第2话 警长对曼登·提姆的要求', '第3话 沙漠中诞生的法外之徒', '第4话 恶魔之掌', '第5话', '第6话', '第7话',
+    '第8话', '第9话', '第10话', '第11话', '第12话',
+  ]);
+
+  Globals.animes = [primary, stage1, stage23];
+  await applyMergeLogic([primary, stage1, stage23]);
+
+  const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from dandan&animeko&animeko'));
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 12, '主源 8 集按集号对齐，副源多出的 4 集补在末尾');
+  assert.deepStrictEqual(numbersOf(merged, 'dandan'), [1, 2, 3, 4, 5, 6, 7, 8], '主源集号保持原有顺序');
+  assert.deepStrictEqual(numbersOf(merged, 'animeko'), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], '副源按集号对应，落单集补在末尾');
+});
+
 test('merge applyMergeLogic 单集断层按零偏移方向对齐', async () => {
   Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
   const buildAnime = (animeId, source, nums) => ({
