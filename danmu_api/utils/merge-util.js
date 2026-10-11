@@ -174,6 +174,8 @@ const RegexStore = {
         INFO_STRONG:      /(?:season|s|第)\s*[0-9一二三四五六七八九十]+\s*(?:季|期|部(?!分))?/gi,
         PART_INFO_STRONG: /(?:part|p|第)\s*\d+\s*(?:部分)?/gi,
         PART_ANY:         /(?:part|p)\s*\d+/gi,
+        PART_MARKER_CN:   /第\s*([0-9]+|[一二三四五六七八九十]+)(?:\s*&\s*第\s*([0-9]+|[一二三四五六七八九十]+))?\s*(?:赛段|季|期|部|部分)/g,
+        PART_MARKER_LATIN:/(?:season|stage|part|s)\s*\.?\s*(\d+)/g,
         CN_STRUCTURE:     /(?:^|\s|×\d+\s?)(承|转|结)(?=$|[\s\(\（\[【])/i,
         SUFFIX_AMBIGUOUS: /(?:[\s\u4e00-\u9fa5]|^)(S|T|R|II|III|IV)(?=$|[\s\(\（\[【])/i,
         SUFFIX_SEQUEL:    /(?:续篇|续集|The Sequel)/i
@@ -745,6 +747,25 @@ function getSeasonNumber(title, typeDesc = '', aliases = []) {
         }
     }
     return maxSeason;
+}
+
+/**
+ * 提取标题中的分部标记：赛段、季、期、部与 Season/Stage/Part 的序号
+ * 用于映射表规则匹配时区分仅在分部写法上不同的条目
+ * @param {string} title - 标题
+ * @returns {Set<string>} 分部序号集合（阿拉伯数字形式）
+ */
+function getPartMarkers(title) {
+    const markers = new Set();
+    const text = simplized(String(title || '')).toLowerCase();
+    for (const m of text.matchAll(RegexStore.Season.PART_MARKER_CN)) {
+        markers.add(String(parseInt(convertChineseNumber(m[1]), 10)));
+        if (m[2]) markers.add(String(parseInt(convertChineseNumber(m[2]), 10)));
+    }
+    for (const m of text.matchAll(RegexStore.Season.PART_MARKER_LATIN)) {
+        markers.add(String(parseInt(m[1], 10)));
+    }
+    return markers;
 }
 
 /**
@@ -2005,6 +2026,16 @@ function getMatchingCustomRule(pAnime, sAnime) {
         };
     };
 
+    const pPartMarkers = getPartMarkers(pAnime.animeTitle);
+    const sPartMarkers = getPartMarkers(sAnime.animeTitle);
+    const countSharedMarkers = (targetMarkers, ruleTitle) => {
+        let count = 0;
+        for (const marker of getPartMarkers(ruleTitle)) if (targetMarkers.has(marker)) count++;
+        return count;
+    };
+
+    let firstMatch = null, bestMatch = null, bestScore = 0;
+
     for (const rule of rules) {
         // 提取基础源(Base Source)，并使用已导入的 DISPLAY_CONNECTOR 常量
         const getBaseSource = (src) => String(src).split(DISPLAY_CONNECTOR)[0];
@@ -2031,9 +2062,14 @@ function getMatchingCustomRule(pAnime, sAnime) {
         if (rule.primary.season !== null && (pSeason || 1) !== rule.primary.season) continue;
         if (rule.secondary.season !== null && (sSeason || 1) !== rule.secondary.season) continue;
 
-        return rule;
+        // 分部标记择优：多条规则的标题在剥离分部噪声后相同时，规则中书写且与条目一致的分部数多者优先；
+        // 均无一致分部时按书写顺序取首个
+        if (firstMatch === null) firstMatch = rule;
+        const score = countSharedMarkers(pPartMarkers, rule.primary.title) +
+                      countSharedMarkers(sPartMarkers, rule.secondary.title);
+        if (score > bestScore) { bestMatch = rule; bestScore = score; }
     }
-    return null;
+    return bestScore > 0 ? bestMatch : firstMatch;
 }
 
 /**
