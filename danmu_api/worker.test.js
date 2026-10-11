@@ -20,7 +20,7 @@ import { handleClearCache } from './apis/system-api.js';
 import { getRedisCaches, getRedisKey, pingRedis, setRedisKey, setRedisKeyWithExpiry, updateRedisCaches } from "./utils/redis-util.js";
 import { getLocalRedisKey, setLocalRedisKey, setLocalRedisKeyWithExpiry } from "./utils/local-redis-util.js";
 import { getImdbepisodes } from "./utils/imdb-util.js";
-import { getTMDBChineseTitle, getTmdbJpDetail, searchTmdbTitles } from "./utils/tmdb-util.js";
+import { getTMDBChineseTitle, getTmdbJpDetail, searchTmdbTitles, getTmdbJaOriginalTitle, stripSeasonMarker, cleanSearchQuery, smartTitleReplace } from "./utils/tmdb-util.js";
 import { getDoubanDetail, getDoubanInfoByImdbId, searchDoubanTitles } from "./utils/douban-util.js";
 import AIClient from './utils/ai-util.js';
 import { getSourceByKey } from './sources/registry.js';
@@ -29,6 +29,8 @@ import MangoSource from "./sources/mango.js";
 import { parseHongguoPlayerUrl } from "./sources/hongguo.js";
 import TencentSource from "./sources/tencent.js";
 import YoukuSource from "./sources/youku.js";
+import AiyifanSource from "./sources/aiyifan.js";
+import { AiyifanAppSigningProvider, AIYIFAN_WEB_YEAR_MAX_WAIT_MS, computeAiyifanWebSign } from './utils/aiyifan-util.js';
 import { NodeHandler } from "./configs/handlers/node-handler.js";
 import { VercelHandler } from "./configs/handlers/vercel-handler.js";
 import { NetlifyHandler } from "./configs/handlers/netlify-handler.js";
@@ -41,6 +43,7 @@ import { Envs } from "./configs/envs.js";
 import { addAnime, addEpisode, findUrlById, getEpisodeIdFloor, getSearchCache, hasSeasonSpecificPreference, isSearchCacheValid, setSearchCache } from "./utils/cache-util.js";
 import { addFavorite, listFavorites, loadFavorites, removeFavorite, resolveFavoriteForKeyword, saveFavorites } from './utils/favorite-util.js';
 import { candidateMatchesMappingQualifiers, candidateMatchesMappingTitle, parseAutoMatchMappingRules, resolveAutoMatchMapping } from './utils/auto-match-mapping-util.js';
+import { findSecondaryMatches, applyMergeLogic, resolveDubVersionLinkIndex, mergeLinkEntry } from "./utils/merge-util.js";
 import { HTML_TEMPLATE } from './ui/template.js';
 import { apitestJsContent } from './ui/js/apitest.js';
 import { logviewJsContent } from './ui/js/logview.js';
@@ -49,10 +52,10 @@ import { previewJsContent } from './ui/js/preview.js';
 import { convertToAsciiSum } from "./utils/codec-util.js";
 import { convertToDanmakuJson, handleDanmusLike, splitBlockedWords, parseBlockedWord } from "./utils/danmu-util.js";
 import { Anime, AnimeMatch, Bangumi, BangumiEpisode, Episodes, Season, Segment, SegmentListResponse } from "./models/dandan-model.js"
-import { initBangumiData, searchBangumiData, clearBangumiDataCache, dedupeBangumiSearchResults } from "./utils/bangumi-data-util.js";
-import { parseNipaplayRelatedLinks, resolveNipaplayLink, applyShiftToDanmu, fetchNipaplayDanmaku, verifyNipaplayAccount } from "./utils/nipaplay-util.js";
+import { initBangumiData, searchBangumiData, clearBangumiDataCache, dedupeBangumiSearchResults, isCacheFormatOutdated, PRUNED_ITEM_FIELDS } from "./utils/bangumi-data-util.js";
+import { parseNipaplayRelatedLinks, resolveNipaplayLink, applyShiftToDanmu, fetchNipaplayDanmaku, fetchNipaplayBangumiDetail, verifyNipaplayAccount } from "./utils/nipaplay-util.js";
 import { httpPatch } from "./utils/http-util.js";
-import DandanSource from "./sources/dandan.js";
+import DandanSource, { fillMissingEpisodes, extractBroadcastStart, selectBangumiDataItem } from "./sources/dandan.js";
 import { extractFongmiSeasonNumber, scoreFongmiEpisodeMatch } from "./apis/clients/fongmi-api.js";
 import { localDanmuJsContent } from './ui/js/localdanmu.js';
 import { buildLocalDanmuResourceKey, groupLocalDanmuResources, parseLocalDanmu, normalizeLocalSeason } from './utils/local-danmu-parser.js';
@@ -4226,6 +4229,85 @@ test('fallback matching prefers the candidate of the target season', async () =>
   assert.equal(await matchFallback([secondSeason, thirdSeason], null), 2001);
 });
 
+test('merge findSecondaryMatches 忽略规则与剧集标题的季度与类型噪声', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedRules = Globals.envs.customMergeRules;
+  const savedEnvRules = process.env.CUSTOM_MERGE_RULES;
+
+  const buildAnime = (animeId, animeTitle, source, aliases = []) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases,
+    source,
+    type: 'web',
+    typeDescription: '网络放送',
+    startDate: '2026-03-18T16:00:00.000Z',
+    links: [],
+  });
+
+  try {
+    process.env.CUSTOM_MERGE_RULES = [
+      '飙马野郎 JOJO的奇妙冒险 第二&第三赛段(2026)【WEB动画】@animeko -> 飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】@dandan',
+      '剧场版 刀剑神域 进击篇 黯淡黄昏的谐谑曲(2022)【剧场版】@dandan -> 剧场版 刀剑神域 进击篇 无星之夜的咏叹调(2021)【剧场版】@bahamut',
+    ].join(';');
+    Globals.envs.customMergeRules = Envs.resolveCustomMergeRules();
+
+    // 规则标题含「第X赛段」时，两侧需做一致的季度噪声剥离后才能严格比对命中
+    const dandanStage1 = buildAnime(19287, '飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】from dandan', 'dandan');
+    const animekoStage23 = buildAnime(639938, '飙马野郎 JOJO的奇妙冒险 第二&第三赛段(2026)【WEB动画】from animeko', 'animeko');
+    assert.deepStrictEqual(
+      findSecondaryMatches(dandanStage1, [animekoStage23], new Set(), ['animeko']).map((a) => a.animeId),
+      [639938],
+      '规则标题含「第二&第三赛段」仍能命中主源「第一赛段」',
+    );
+    // 传入空的 baseSecondaries 时，只有特权通道能放行：用于判别规则是否真的命中（而非仅靠相似度通过）
+    assert.deepStrictEqual(
+      findSecondaryMatches(dandanStage1, [animekoStage23], new Set(), []).map((a) => a.animeId),
+      [639938],
+      '规则命中后不受权限沙箱限制',
+    );
+
+    // 规则标题含「剧场版」时，两侧需做一致的类型噪声剥离后才能严格比对命中
+    const bahamutMovie = buildAnime(90001, '剧场版 刀剑神域 进击篇 无星之夜的咏叹调(2021)【剧场版】from bahamut', 'bahamut');
+    const dandanMovie = buildAnime(90002, '剧场版 刀剑神域 进击篇 黯淡黄昏的谐谑曲(2022)【剧场版】from dandan', 'dandan');
+    assert.deepStrictEqual(
+      findSecondaryMatches(bahamutMovie, [dandanMovie], new Set(), []).map((a) => a.animeId),
+      [90002],
+      '规则标题含「剧场版」仍能命中',
+    );
+
+    // 规则标题显式写「季」时两侧均不剥离季度噪声：规则所写的季命中，其它季不匹配
+    process.env.CUSTOM_MERGE_RULES = '某测试动画 第三季(2026)【TV动画】@bilibili -> 某测试动画 第二季(2026)【TV动画】@dandan';
+    Globals.envs.customMergeRules = Envs.resolveCustomMergeRules();
+    const seasonPrimary = buildAnime(91001, '某测试动画 第二季(2026)【TV动画】from dandan', 'dandan');
+    const seasonSecondary = buildAnime(91002, '某测试动画 第三季(2026)【TV动画】from bilibili', 'bilibili');
+    const seasonOther = buildAnime(91003, '某测试动画 第二季(2026)【TV动画】from bilibili', 'bilibili');
+    assert.deepStrictEqual(
+      findSecondaryMatches(seasonPrimary, [seasonSecondary], new Set(), []).map((a) => a.animeId),
+      [91002],
+      '规则显式写季时规则所写的季命中',
+    );
+    assert.strictEqual(
+      findSecondaryMatches(seasonPrimary, [seasonOther], new Set(), []).length,
+      0,
+      '规则显式写季时其它季不匹配',
+    );
+
+    // 与规则无关的作品仍按常规相似度判定，不因噪声剥离而被放行
+    const unrelatedAnime = buildAnime(90003, '完全无关的测试作品(2026)【TV动画】from dandan', 'dandan');
+    assert.strictEqual(
+      findSecondaryMatches(unrelatedAnime, [animekoStage23], new Set(), []).length,
+      0,
+      '无关作品不被放行',
+    );
+  } finally {
+    Globals.envs.customMergeRules = savedRules;
+    if (savedEnvRules === undefined) delete process.env.CUSTOM_MERGE_RULES;
+    else process.env.CUSTOM_MERGE_RULES = savedEnvRules;
+  }
+});
+
 test('season extraction recognizes season markers', () => {
   // 尾部阿拉伯数字、中文数字、S/Season/Part、罗马数字均识别为季号
   assert.equal(extractSeasonNumberFromAnimeTitle('赛马娘2').season, 2);
@@ -4378,6 +4460,738 @@ test('season extraction recognizes season markers', () => {
 //     assert.strictEqual(Envs.originalEnvVars.get('DANDANPLAY_PASSWORD'), 'p#w');
 //   });
 
+test('merge findSecondaryMatches 配音版本年份豁免与季标记集证据', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: titles.map((title) => ({ title })),
+    episodeCount: titles.length,
+  });
+  const epTitles = (count, names) => Array.from({ length: count }, (_, i) => `第${i + 1}集 ${names[i % names.length]}`);
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+
+  // 配音版本条目年份取配音版本自身发行年的来源参与时，年份差 10 年以内豁免
+  assert.strictEqual(matched(
+    buildAnime(1, '工作细胞（中配版）(2021)【电视剧】from bilibili', 'bilibili', epTitles(13, ['红细胞'])),
+    buildAnime(2, '工作细胞(2018)【电视剧】from dandan', 'dandan', epTitles(13, ['红细胞'])),
+  ), true, 'bilibili 配音版本年份差豁免');
+
+  // 其余来源的配音版本不享有年份豁免
+  assert.strictEqual(matched(
+    buildAnime(3, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+    buildAnime(4, '倚天屠龙记(2009)【电视剧】from aiyifan', 'aiyifan', epTitles(40, ['少年张无忌'])),
+  ), false, '非 bilibili 配音版本不做年份豁免');
+
+  // 年份差 2 年时季标记豁免需集证据：正片集数相差超过 1 集且集标题不同则不豁免
+  assert.strictEqual(matched(
+    buildAnime(5, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+    buildAnime(6, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epTitles(40, ['少年张无忌'])),
+  ), false, '集数相差 2 集且集标题不同时不豁免');
+
+  // 正片集数相差不超过 1 集时豁免成立
+  assert.strictEqual(matched(
+    buildAnime(7, '倚天屠龙记(2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+    buildAnime(8, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epTitles(41, ['少年张无忌'])),
+  ), true, '正片集数相差 1 集内豁免成立');
+
+  // 正片集数相差超过 1 集时，集标题字符集不一致的双方不作集证据
+  assert.strictEqual(matched(
+    buildAnime(13, '咒术回战(2021)【电视剧】from tencent', 'tencent', epTitles(13, ['两面宿傩'])),
+    buildAnime(14, '咒术回战(2023)【电视剧】from bahamut', 'bahamut', epTitles(15, ['宿儺のはなし'])),
+  ), false, '集标题字符集不一致时不做集标题证据');
+
+  assert.strictEqual(matched(
+    buildAnime(15, '咒术回战(2021)【电视剧】from tencent', 'tencent', epTitles(13, ['两面宿傩'])),
+    buildAnime(16, '咒术回战(2023)【电视剧】from bilibili', 'bilibili', epTitles(15, ['两面宿傩'])),
+  ), true, '集标题同字符集且采样相似时豁免成立');
+
+  // 两侧集标题都是剧名本身（冗余标题字段）时不具备区分能力，不作为集证据
+  assert.strictEqual(matched(
+    buildAnime(17, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', Array.from({ length: 42 }, () => '倚天屠龙记')),
+    buildAnime(18, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', Array.from({ length: 40 }, () => '倚天屠龙记')),
+  ), false, '集标题为剧名本身时不做集标题证据');
+  // EN 集标题：两侧同为拉丁字母时按字符集判定为同一语种，参与采样
+  assert.strictEqual(matched(
+    buildAnime(19, 'Drama X(2021)【电视剧】from tencent', 'tencent', ['Episode One', 'Episode Two', 'Episode Three']),
+    buildAnime(20, 'Drama X(2023)【电视剧】from aiyifan', 'aiyifan', ['Episode One', 'Episode Two', 'Episode Three', 'Episode Four', 'Episode Five']),
+  ), true, 'EN 集标题同字符集且采样相似时豁免成立');
+  // 集标题既无假名、也无汉字拉丁字母（无脚本）时不作为集证据
+  assert.strictEqual(matched(
+    buildAnime(21, 'Drama Y(2021)【电视剧】from tencent', 'tencent', ['①②③', '④⑤⑥', '⑦⑧⑨']),
+    buildAnime(22, 'Drama Y(2023)【电视剧】from aiyifan', 'aiyifan', ['①②③', '④⑤⑥', '⑦⑧⑨', '⑩⑪⑫', '⑬⑭⑮']),
+  ), false, '集标题无脚本时不作为集证据');
+
+  // 年份差 1 年以内不进入豁免链
+  assert.strictEqual(matched(
+    buildAnime(9, 'FX战士久留美(2026)【TV动画】from dandan', 'dandan', epTitles(4, ['日常'])),
+    buildAnime(10, 'FX战士久留美(2027)【TV动画】from bahamut', 'bahamut', epTitles(2, ['日常'])),
+  ), true, '年份差 1 年直接通过');
+
+  // 合并映射表特权通道不受年份校验影响
+  const savedRules = Globals.envs.customMergeRules;
+  const savedEnvRules = process.env.CUSTOM_MERGE_RULES;
+  try {
+    process.env.CUSTOM_MERGE_RULES = '倚天屠龙记(2003)【电视剧】@aiyifan -> 倚天屠龙记[普通话版](2001)【电视剧】@tencent';
+    Globals.envs.customMergeRules = Envs.resolveCustomMergeRules();
+    assert.strictEqual(
+      findSecondaryMatches(
+        buildAnime(11, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epTitles(42, ['天涯思君不可忘'])),
+        [buildAnime(12, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epTitles(40, ['少年张无忌']))],
+        new Set(), [],
+      ).length, 1, '映射表特权通道照常放行');
+  } finally {
+    process.env.CUSTOM_MERGE_RULES = savedEnvRules;
+    Globals.envs.customMergeRules = savedRules;
+  }
+});
+
+test('merge findSecondaryMatches 同一配音版本只并入一条', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: /【电影】/.test(animeTitle) ? '电影' : '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: titles.map((title) => ({ title })),
+    episodeCount: titles.length,
+  });
+  const titlesOf = (list) => findSecondaryMatches(list.primary, list.secondaries, new Set(), ['aiyifan']).map((a) => a.animeTitle);
+
+  // 主源为粤语版时，另一部作品的粤语版不并入，只保留分数最高的同语言一条
+  assert.deepStrictEqual(titlesOf({
+    primary: buildAnime(1, '倚天屠龙记之圣火雄风粤语(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
+    secondaries: [
+      buildAnime(2, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+      buildAnime(3, '倚天屠龙记之圣火雄风(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+    ],
+  }), ['倚天屠龙记之圣火雄风(粤语)(2022)【电影】from aiyifan'], '同配音版本只保留最高分一条');
+
+  // 不同配音版本各保留一条
+  assert.strictEqual(titlesOf({
+    primary: buildAnime(4, '倚天屠龙记之圣火雄风(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
+    secondaries: [
+      buildAnime(5, '倚天屠龙记之圣火雄风(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+      buildAnime(6, '倚天屠龙记之圣火雄风(国语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+    ],
+  }).length, 2, '不同配音版本各保留一条');
+
+  // 同一作品的同语言结果来自多个来源时，同样只并入最高分的一条
+  assert.deepStrictEqual(titlesOf({
+    primary: buildAnime(7, '倚天屠龙记之九阳神功(2022)【电影】from iqiyi', 'iqiyi', ['正片']),
+    secondaries: [
+      buildAnime(8, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', 'aiyifan', ['正片']),
+      buildAnime(9, '倚天屠龙记之九阳神功粤语(2022)【电影】from tencent', 'tencent', ['正片']),
+    ],
+  }).length, 1, '同一作品的同语言结果只保留最高分一条');
+});
+
+test('merge applyMergeLogic 集对齐不绕过年份校验', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan' });
+  const epLinks = (count, name) => Array.from({ length: count }, (_, i) => ({
+    title: `${name}_${String(i + 1).padStart(2, '0')}`,
+    url: `https://example.com/${encodeURIComponent(name)}/${i + 1}`,
+  }));
+  const buildAnime = (animeId, animeTitle, source, links) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links,
+  });
+
+  const primary = buildAnime(1, '倚天屠龙记[普通话版](2001)【电视剧】from tencent', 'tencent', epLinks(42, '倚天屠龙记[普通话版]'));
+  const wrong   = buildAnime(2, '倚天屠龙记(2003)【电视剧】from aiyifan', 'aiyifan', epLinks(40, '倚天屠龙记'));
+
+  Globals.animes = [primary, wrong];
+  await applyMergeLogic([primary, wrong]);
+
+  assert.strictEqual(primary.links.some((link) => String(link.url).includes('aiyifan')), false, '年份差 2 年的同名不同作品不因集对齐而关联');
+  assert.strictEqual(primary.mergedChildren, undefined, '未产生合并子条目');
+  assert.strictEqual(wrong.links.some((link) => String(link.url).includes('tencent')), false, '副源链接未被改写');
+});
+
+test('merge resolveDubVersionLinkIndex 按配音版本选择主源链接', () => {
+  const filteredLinks = [
+    { link: { title: '【qq】 倚天屠龙记之九阳神功(普通话版)', url: 'mandarin' }, originalIndex: 0 },
+    { link: { title: '【qq】 倚天屠龙记之九阳神功(粤语版)', url: 'cantonese' }, originalIndex: 1 },
+  ];
+  const titleOf = (link) => link.title;
+
+  assert.strictEqual(
+    resolveDubVersionLinkIndex(filteredLinks, 0, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    1, '粤语副源选择粤语主源链接');
+  assert.strictEqual(
+    resolveDubVersionLinkIndex(filteredLinks, 0, '倚天屠龙记之九阳神功(国语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    0, '国语副源落在国语主源链接');
+  assert.strictEqual(
+    resolveDubVersionLinkIndex(filteredLinks, 0, '倚天屠龙记之九阳神功(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    0, '副源无配音标识时保持原链接');
+  assert.strictEqual(
+    resolveDubVersionLinkIndex([filteredLinks[0]], 0, '倚天屠龙记之九阳神功(粤语)(2022)【电影】from aiyifan', titleOf, 'tencent'),
+    0, '主源无同配音版本链接时保持原链接');
+});
+
+test('merge mergeLinkEntry 拼接复合 URL 并在标题标签中追加来源', () => {
+  const target = { url: 'https://v.qq.com/x/cover/abc/1.html', title: '【qq】 倚天屠龙记之九阳神功(普通话版)' };
+  const aiyifan = { url: 'https://www.yfsp.tv/play/2hRswEx6yr4?id=x', title: '【aiyifan】 720P' };
+
+  const first = mergeLinkEntry(target, aiyifan, 'aiyifan', 'tencent');
+  assert.strictEqual(first.url, 'tencent:https://v.qq.com/x/cover/abc/1.html$$$aiyifan:https://www.yfsp.tv/play/2hRswEx6yr4?id=x', '主源 URL 补来源前缀后再追加副源分段');
+  assert.strictEqual(first.title, '【qq&aiyifan】 倚天屠龙记之九阳神功(普通话版)', '标题标签追加副源标签');
+
+  const second = mergeLinkEntry({ url: first.url, title: first.title }, { url: 'u2', title: '【dandan】 1080P' }, 'dandan', 'tencent');
+  assert.strictEqual(second.url, first.url + '$$$dandan:u2', '已含复合分隔符时直接追加分段');
+  assert.strictEqual(second.title, '【qq&aiyifan&dandan】 倚天屠龙记之九阳神功(普通话版)', '标题标签继续追加');
+
+  const noTag = mergeLinkEntry(target, { url: 'u3', title: '720P' }, 'migu', 'tencent');
+  assert.strictEqual(noTag.title, '【qq&migu】 倚天屠龙记之九阳神功(普通话版)', '副源标题无标签时使用来源名');
+
+  const mismatched = mergeLinkEntry(target, { url: 'u4', title: '【other】 720P' }, 'migu', 'tencent');
+  assert.strictEqual(mismatched.title, '【qq&other】 倚天屠龙记之九阳神功(普通话版)', '标题标签以副源链接自带标签优先');
+});
+
+test('merge findSecondaryMatches 英文别名中的独立 I 不作季度标记', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, aliases) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases,
+    source,
+    typeDescription: 'TV动画',
+    startDate: /(\d{4})/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: 12 }, (_, i) => ({ title: `第${i + 1}集` })),
+    episodeCount: 12,
+  });
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+  const englishAliases = ['相反的你和我', 'Seihantai na Kimi to Boku', '正反対な君と僕', 'You and I Are Polar Opposites'];
+
+  const primary = buildAnime(1, '正相反的你与我(2026)【TV动画】from dandan', 'dandan', englishAliases);
+
+  // 别名中的英文标题含独立代词 I，不得被读成第 1 季标记而掩盖与第一季的季度冲突
+  assert.strictEqual(matched(primary, buildAnime(2, '正相反的你与我 第二季(2026)【TV动画】from bahamut', 'bahamut',
+    [...englishAliases, '相反的你和我 第二季', 'You and I are Polar Opposites Season 2'])), false, '含英文标题别名的第二季仍与第一季冲突');
+
+  assert.strictEqual(matched(primary, buildAnime(3, '正相反的你与我 第二季(2026)【TV动画】from animeko', 'animeko',
+    ['相反的你和我 第二季', '正相反的你与我 第二季'])), false, '仅中文别名的第二季与第一季冲突');
+
+  assert.strictEqual(matched(primary, buildAnime(4, '正相反的你与我(2026)【TV动画】from animeko', 'animeko',
+    englishAliases)), true, '同季候选不受影响');
+});
+
+test('merge findSecondaryMatches 罗马数字 II/III/IV 作季度标记', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: 'TV动画',
+    startDate: /(\d{4})/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: 13 }, (_, i) => ({ title: `第${i + 1}集` })),
+    episodeCount: 13,
+  });
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+
+  // 独立出现的 I 与英文代词同形不作季度标记，II/III/IV 仍按季度标记解析
+  assert.strictEqual(matched(
+    buildAnime(1, 'OVERLORD 第二季(2018)【TV动画】from dandan', 'dandan'),
+    buildAnime(2, 'OVERLORD II(2018)【TV动画】from bahamut', 'bahamut')),
+    true, 'II 读作第 2 季，与同季候选匹配');
+
+  assert.strictEqual(matched(
+    buildAnime(3, 'OVERLORD 第二季(2018)【TV动画】from dandan', 'dandan'),
+    buildAnime(4, 'OVERLORD III(2018)【TV动画】from bahamut', 'bahamut')),
+    false, 'III 读作第 3 季，与第二季冲突');
+
+  assert.strictEqual(matched(
+    buildAnime(5, 'OVERLORD 第二季(2018)【TV动画】from dandan', 'dandan'),
+    buildAnime(6, 'OVERLORD IV(2022)【TV动画】from bahamut', 'bahamut')),
+    false, 'IV 读作第 4 季，与第二季冲突');
+});
+
+test('merge findSecondaryMatches 中文数字季号取完整数字', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    typeDescription: 'TV动画',
+    startDate: /(\d{4})/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: 12 }, (_, i) => ({ title: `第${i + 1}集` })),
+    episodeCount: 12,
+  });
+  const matched = (primary, secondary) => findSecondaryMatches(primary, [secondary], new Set(), [secondary.source]).length > 0;
+
+  // 中文季号超过十时须取完整数字，仅取首字会把第十三季与第十五季一同归一为第 10 季
+  assert.strictEqual(matched(
+    buildAnime(1, '长篇番剧 第十三季(2024)【TV动画】from dandan', 'dandan'),
+    buildAnime(2, '长篇番剧 第十五季(2026)【TV动画】from bahamut', 'bahamut')),
+    false, '第十三季与第十五季互不匹配');
+
+  assert.strictEqual(matched(
+    buildAnime(3, '长篇番剧 第十三季(2024)【TV动画】from dandan', 'dandan'),
+    buildAnime(4, '长篇番剧 第十三季(2024)【TV动画】from bahamut', 'bahamut')),
+    true, '同为第十三季的候选仍可匹配');
+});
+
+test('merge applyMergeLogic 集号基准不同时按季度偏移对齐', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2026-07-05T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+  const mergedOf = (series, source) => Globals.animes.find((anime) => anime.animeTitle.startsWith(series) && anime.animeTitle.includes(`from dandan&${source}`));
+  const mergedPairs = (anime, source) => anime.links.filter((link) => String(link.url).includes('$$$' + source + ':')).length;
+
+  // 主源本季从 1 起编号、副源承接上一季（13 起），双方第 13 集同题
+  const primary = buildAnime(1, '正相反的你与我 第二季(2026)【TV动画】from dandan', 'dandan', [
+    '第1话 クリスマスイヴ', '第2话 冬の夜のジレンマ', '第3话 行く年来る年', '第4话 新学期', '第5话 バレンタイン',
+    '第6话 春の手前', '第7话 グラデーション', '第8话 この先', '第9话 過去と今', '第10话 想いと選択',
+    '第11话 居場所', '第12话 スタートライン', '第13话 平安夜', 'C1 Opening', 'C2 Ending',
+  ]);
+  const secondary = buildAnime(2, '正相反的你与我 第二季(2026)【TV动画】from animeko', 'animeko', [
+    '第13话 平安夜', '第14话 冬夜的两难', '第15话 送旧迎新', '第16话 新学期', '第17话 情人节',
+    '第18话 春天的前夕', '第19话 渐层', '第20话 在这之后', '第21话 过去和现在', '第22话 想法和选择',
+    '第23话 容身之處', '第24话 起点', '第25话 相反的你和我',
+  ]);
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = mergedOf('正相反的你与我 第二季', 'animeko');
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 15, '13 个正片各自对齐，番外不触发补全');
+  assert.strictEqual(mergedPairs(merged, 'animeko'), 13, '副源 13 集全部与主源对应集合并');
+
+  // 反向：主源承接上一季（13 起）、副源本季从 1 起
+  const sequelNumbered = buildAnime(3, '无限滑板 第二季(2026)【TV动画】from dandan', 'dandan', [
+    '第13话 起始', '第14话 第二次', '第15话 第三次', '第16话 第四次', '第17话 第五次',
+    '第18话 第六次', '第19话 第七次', '第20话 第八次', '第21话 第九次', '第22话 第十次',
+    '第23话 第十一次', '第24话 第十二次', '第25话 终点',
+  ]);
+  const seasonNumbered = buildAnime(4, '无限滑板 第二季(2026)【TV动画】from animeko', 'animeko', [
+    '第1话 起始', '第2话 第二次', '第3话 第三次', '第4话 第四次', '第5话 第五次',
+    '第6话 第六次', '第7话 第七次', '第8话 第八次', '第9话 第九次', '第10话 第十次',
+    '第11话 第十一次', '第12话 第十二次', '第13话 终点',
+  ]);
+
+  Globals.animes = [sequelNumbered, seasonNumbered];
+  await applyMergeLogic([sequelNumbered, seasonNumbered]);
+
+  const reverseMerged = mergedOf('无限滑板 第二季', 'animeko');
+  assert.notStrictEqual(reverseMerged, undefined, '反向场景产生合并条目');
+  assert.strictEqual(reverseMerged.links.length, 13, '主源顺延编号时同样按季度偏移对齐');
+});
+
+test('merge applyMergeLogic 单集断层按零偏移方向对齐', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
+  const buildAnime = (animeId, source, nums) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle: `断层番剧(2026)【TV动画】from ${source}`,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2026-04-05T00:00:00.000Z',
+    links: nums.map((num, i) => ({ title: `【${source}】 第${num}集`, url: `${source}:${animeId}:${i}:${num}` })),
+    episodeCount: nums.length,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:(\\d+)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+
+  // 主源缺第 2 集形成单集断层，副源连续：只按号码相等的方向对齐，不得整体错位
+  const gap = [1, ...Array.from({ length: 11 }, (_, i) => i + 3)];
+  const primary   = buildAnime(1, 'dandan', gap);
+  const secondary = buildAnime(2, 'animeko', Array.from({ length: 13 }, (_, i) => i + 1));
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from dandan&animeko'));
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 13, '12 集按号码对上，副源多出的 1 集落到末尾');
+  assert.deepStrictEqual(numbersOf(merged, 'dandan'), gap, '主源集号保持原有顺序');
+  assert.deepStrictEqual(numbersOf(merged, 'animeko'), [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 2], '副源按号码对齐，落单集补在末尾');
+});
+
+test('merge applyMergeLogic 多季划分与合集按季切片对齐', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&bahamut' });
+  const buildAnime = (animeId, animeTitle, source, count) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2023-04-12T00:00:00.000Z',
+    links: Array.from({ length: count }, (_, i) => ({ title: `【${source}】 第${i + 1}集`, url: `${source}:${animeId}:${i}:${i + 1}` })),
+    episodeCount: count,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:(\\d+)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+
+  // 主源按季划分（S1 11 集 / S2 13 集 / S3 11 集），副源为整部合集（35 集）
+  const collection = buildAnime(101, '我推的孩子(2023)【TV动画】from bahamut', 'bahamut', 35);
+  const seasons = [
+    buildAnime(201, '我推的孩子 第一季(2023)【TV动画】from dandan', 'dandan', 11),
+    buildAnime(202, '我推的孩子 第二季(2023)【TV动画】from dandan', 'dandan', 13),
+    buildAnime(203, '我推的孩子 第三季(2023)【TV动画】from dandan', 'dandan', 11),
+  ];
+
+  Globals.animes = [collection, ...seasons];
+  await applyMergeLogic([collection, ...seasons]);
+
+  const merged = (seasonTitle) => Globals.animes.find((anime) => anime.animeTitle.startsWith(seasonTitle) && anime.animeTitle.includes('from dandan&bahamut'));
+  for (const [title, count] of [['我推的孩子 第一季', 11], ['我推的孩子 第二季', 13], ['我推的孩子 第三季', 11]]) {
+    const entry = merged(title);
+    assert.notStrictEqual(entry, undefined, `${title} 与合集关联`);
+    assert.strictEqual(entry.links.length, count, `${title} 与合集对应季的集数一致`);
+  }
+  assert.deepStrictEqual(numbersOf(merged('我推的孩子 第一季'), 'bahamut'), Array.from({ length: 11 }, (_, i) => i + 1), 'S1 对应合集第 1~11 集');
+  assert.deepStrictEqual(numbersOf(merged('我推的孩子 第二季'), 'bahamut'), Array.from({ length: 13 }, (_, i) => i + 12), 'S2 对应合集第 12~24 集');
+  assert.deepStrictEqual(numbersOf(merged('我推的孩子 第三季'), 'bahamut'), Array.from({ length: 11 }, (_, i) => i + 25), 'S3 对应合集第 25~35 集');
+});
+
+test('merge applyMergeLogic 非整数集号按番外落单', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&bahamut' });
+  const buildAnime = (animeId, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle: `一拳超人 第三季(2025)【TV动画】from ${source}`,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2025-10-05T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+  const numbersOf = (anime, source) => anime.links
+    .map((link) => new RegExp(`(?:^|\\$\\$\\$)${source}:\\d+:\\d+:([^$]*)`).exec(String(link.url)))
+    .filter(Boolean)
+    .map((m) => m[1]);
+
+  // 副源在正片中间插入非整数集号的番外（巴哈此类番外如「24.5 集」），它不得占用正片位置
+  const primary   = buildAnime(1, 'dandan', Array.from({ length: 12 }, (_, i) => `第${i + 1}话`));
+  const secondary = buildAnime(2, 'bahamut', [
+    '第1集', '第2集', '第3集', '第4集', '第5集', '第5.5集',
+    '第6集', '第7集', '第8集', '第9集', '第10集', '第11集', '第12集',
+  ]);
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from dandan&bahamut'));
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 13, '12 集正片各自对齐，番外另占一条链接');
+  assert.deepStrictEqual(numbersOf(merged, 'dandan'), Array.from({ length: 12 }, (_, i) => `第${i + 1}话`), '主源正片按原有集号并入');
+  assert.deepStrictEqual(numbersOf(merged, 'bahamut'), [...Array.from({ length: 12 }, (_, i) => `第${i + 1}集`), '第5.5集'], '副源正片按集号对应，5.5 集沉至末尾不占用正片位置');
+  assert.strictEqual(String(merged.links[12].url).includes('$$$'), false, '番外链接不含副源分段，保持落单');
+});
+
+test('merge applyMergeLogic 配音版本副源并入同配音版本链接', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan' });
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: '2003-01-01T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+
+  // 主源同一集含普通话与粤语两条链接，粤语副源落在粤语链接上，普通话链接计入落单
+  const primaryTitles = [];
+  for (let i = 1; i <= 6; i++) primaryTitles.push(`第${i}集 (普通话版)`, `第${i}集 (粤语版)`);
+  const primary   = buildAnime(1, '倚天屠龙记(2003)【电视剧】from tencent', 'tencent', primaryTitles);
+  const secondary = buildAnime(2, '倚天屠龙记(粤语)(2003)【电视剧】from aiyifan', 'aiyifan',
+    Array.from({ length: 6 }, (_, i) => `第${i + 1}集`));
+
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from tencent&aiyifan'));
+  assert.notStrictEqual(merged, undefined, '产生合并条目');
+  assert.strictEqual(merged.links.length, 12, '主源 12 条链接全部保留');
+  assert.strictEqual(merged.links.filter((link) => String(link.url).includes('$$$')).length, 6, '每集只有一条主源链接并入副源');
+  assert.deepStrictEqual(merged.links.filter((link) => String(link.url).includes('$$$')).map((link) => link.title),
+    Array.from({ length: 6 }, (_, i) => `【tencent&aiyifan】 第${i + 1}集 (粤语版)`), '粤语副源并入粤语链接，普通话链接保持独立');
+});
+
+test('merge applyMergeLogic 映射表特权通道不受年份判定约束', async () => {
+  const rule = '倚天屠龙记(2009)【电视剧】@aiyifan -> 倚天屠龙记(2001)【电视剧】@tencent';
+  const buildAnime = (animeId, animeTitle, source, count) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: /\((\d{4})\)/.exec(animeTitle)[1] + '-01-01T00:00:00.000Z',
+    links: Array.from({ length: count }, (_, i) => ({ title: `【${source}】 第${i + 1}集`, url: `${source}:${animeId}:${i}:${i + 1}` })),
+    episodeCount: count,
+  });
+  const mergedWithRule = async (ruleText, yearA, yearB) => {
+    Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan', CUSTOM_MERGE_RULES: ruleText });
+    const primary   = buildAnime(1, `倚天屠龙记(${yearA})【电视剧】from tencent`, 'tencent', 12);
+    const secondary = buildAnime(2, `倚天屠龙记(${yearB})【电视剧】from aiyifan`, 'aiyifan', 12);
+    Globals.animes = [primary, secondary];
+    await applyMergeLogic([primary, secondary]);
+    return Globals.animes.some((anime) => String(anime.animeTitle).includes('from tencent&aiyifan'));
+  };
+
+  try {
+    // 映射表为用户自定义的最高优先级，命中后标题匹配侧与集对齐侧都不再作年份判定
+    assert.strictEqual(await mergedWithRule(rule, 2001, 2009), true, '特权通道下年份差 8 年的同名不同作品照常合并');
+    assert.strictEqual(await mergedWithRule(rule, 2001, 2001), true, '年份一致时特权通道合并');
+    assert.strictEqual(await mergedWithRule('', 2001, 2009), false, '未命中映射表时仍按年份关系判定');
+  } finally {
+    Globals.init({ LOG_LEVEL: 'error' });
+  }
+});
+
+test('merge applyMergeLogic 映射表集路由下的配音版本链接选择', async () => {
+  const rule = '倚天屠龙记(粤语)(2003)【电视剧】@aiyifan -> 倚天屠龙记(2003)【电视剧】@tencent | E1~E12>E1~E12';
+  const primaryTitles = [];
+  for (let i = 1; i <= 12; i++) primaryTitles.push(`第${i}集 (普通话版)`, `第${i}集 (粤语版)`);
+  const buildAnime = (animeId, animeTitle, source, titles) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: '电视剧',
+    typeDescription: '电视剧',
+    startDate: '2003-01-01T00:00:00.000Z',
+    links: titles.map((title, i) => ({ title: `【${source}】 ${title}`, url: `${source}:${animeId}:${i}:${title}` })),
+    episodeCount: titles.length,
+  });
+
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan', CUSTOM_MERGE_RULES: rule });
+  const primary   = buildAnime(1, '倚天屠龙记(2003)【电视剧】from tencent', 'tencent', primaryTitles);
+  const secondary = buildAnime(2, '倚天屠龙记(粤语)(2003)【电视剧】from aiyifan', 'aiyifan',
+    Array.from({ length: 12 }, (_, i) => `第${i + 1}集`));
+
+  try {
+    Globals.animes = [primary, secondary];
+    await applyMergeLogic([primary, secondary]);
+
+    const merged = Globals.animes.find((anime) => anime.animeTitle.includes('from tencent&aiyifan'));
+    assert.notStrictEqual(merged, undefined, '产生合并条目');
+    const mergedLinks = merged.links.filter((link) => String(link.url).includes('$$$'));
+    assert.strictEqual(merged.links.length, 24, '主源 24 条链接全部保留');
+    assert.strictEqual(mergedLinks.length, 12, '集路由下 12 集各并入一条主源链接');
+    assert.ok(mergedLinks.every((link) => link.title.includes('粤语版')), '粤语副源经集路由并入粤语链接');
+  } finally {
+    Globals.init({ LOG_LEVEL: 'error' });
+  }
+});
+
+
+test('tmdb stripSeasonMarker 剥离季与分部标记', () => {
+  assert.strictEqual(stripSeasonMarker('スティール・ボール・ラン ジョジョの奇妙な冒険 1st STAGE'), 'スティール・ボール・ラン ジョジョの奇妙な冒険', '序数 STAGE 标记被剥离');
+  assert.strictEqual(stripSeasonMarker('飙马野郎 JOJO的奇妙冒险 第一赛段'), '飙马野郎 JOJO的奇妙冒险', '中文赛段标记被剥离');
+  assert.strictEqual(stripSeasonMarker('ワンパンマン 2nd Season'), 'ワンパンマン', '序数 Season 标记被剥离');
+  assert.strictEqual(stripSeasonMarker('無職転生 第2期'), '無職転生', '第X期标记被剥离');
+  assert.strictEqual(stripSeasonMarker('ふしぎ遊戯 第二部'), 'ふしぎ遊戯', '中文部标记被剥离');
+  assert.strictEqual(stripSeasonMarker('GANTZ 〜the 2nd stage〜'), 'GANTZ 〜the', '夹在波浪号中的序数标记被剥离');
+  // 分隔符与影片类型词不属季与分部标记，标题其余部分保留
+  assert.strictEqual(stripSeasonMarker('Re:ゼロから始める異世界生活'), 'Re:ゼロから始める異世界生活', '冒号不触发剥离');
+  assert.strictEqual(stripSeasonMarker('も～っと！おジャ魔女どれみ'), 'も～っと！おジャ魔女どれみ', '波浪号不触发剥离');
+  assert.strictEqual(stripSeasonMarker('ONE PIECE FILM RED'), 'ONE PIECE FILM RED', '影片类型词不触发剥离');
+  // 标记位于标题开头时保留原标题，避免检索关键词被清空
+  assert.strictEqual(stripSeasonMarker('四季樱'), '四季樱', '含「四季」的标题保留原样');
+  assert.strictEqual(stripSeasonMarker('一期一会 恋バナ友バナ'), '一期一会 恋バナ友バナ', '含「一期」的标题保留原样');
+  assert.strictEqual(stripSeasonMarker('第九部落'), '第九部落', '含「第九部」的标题保留原样');
+});
+
+test('tmdb getTmdbJaOriginalTitle 按 Bangumi Data 原名剥离分部标记', async () => {
+  // 真实场景：以「スティール・ボール・ラン ジョジョの奇妙な冒険 1st STAGE」为检索词会在巴哈命中「頭文字 D 1st stage」
+  const cachePath = path.join(process.cwd(), '.cache', 'bangumi-data-cache.json');
+  const hadCache = await fs.access(cachePath).then(() => true, () => false);
+  const backup = hadCache ? await fs.readFile(cachePath) : null;
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+
+  try {
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    await fs.writeFile(cachePath, JSON.stringify({
+      items: [{
+        title: 'スティール・ボール・ラン ジョジョの奇妙な冒険 1st STAGE',
+        type: 'tv',
+        sites: [{ site: 'gamer', id: '20144', video_sn: '40245' }, { site: 'bangumi', id: '639938' }],
+        begin: '2026-03-18T16:00:00.000Z',
+        titleTranslate: { 'zh-Hans': ['飙马野郎 JOJO的奇妙冒险 第一赛段'] },
+        _flatText: 'スティール・ボール・ラン ジョジョの奇妙な冒険 1st stage飙马野郎 jojo的奇妙冒险 第一赛段',
+      }],
+    }));
+    Globals.envs.useBangumiData = true;
+    await initBangumiData('node', true);
+
+    const result = await getTmdbJaOriginalTitle('飙马野郎', null, 'Bahamut');
+    assert.strictEqual(result.title, 'スティール・ボール・ラン ジョジョの奇妙な冒険', '出站检索词剥离分部标记');
+    assert.strictEqual(result.cnAlias, '飙马野郎 JOJO的奇妙冒险 第一赛段', '展示别名保持原样');
+  } finally {
+    Globals.envs.useBangumiData = savedUseBangumiData;
+    clearBangumiDataCache(false);
+    if (hadCache) await fs.writeFile(cachePath, backup);
+    else await fs.rm(cachePath, { force: true });
+  }
+});
+
+test('tmdb getTmdbJaOriginalTitle 按 TMDB 原名剥离分部标记', async () => {
+  // 与 Bangumi Data 分支同一诉求：出站检索词去除季与分部标记，展示别名保持原样
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  const savedTmdbApiKey = Globals.envs.tmdbApiKey;
+  const json = (data) => mockJsonResponse(data, '');
+
+  try {
+    Globals.envs.useBangumiData = false;
+    Globals.envs.tmdbApiKey = 'season-marker-probe';
+
+    const result = await withMockFetch(async (url) => {
+      const target = String(url);
+      if (target.includes('/search/multi')) {
+        return json({ results: [{
+          id: 45790,
+          media_type: 'tv',
+          name: '飙马野郎 JOJO的奇妙冒险 第一赛段',
+          original_name: 'スティール・ボール・ラン ジョジョの奇妙な冒険 1st STAGE',
+          genre_ids: [16],
+          original_language: 'ja',
+        }] });
+      }
+      if (target.includes('/alternative_titles')) {
+        return json({ titles: [{ iso_3166_1: 'CN', title: '飙马野郎 JOJO的奇妙冒险 第一赛段' }] });
+      }
+      if (/\/3\/tv\/45790/.test(target)) {
+        return json({ id: 45790, original_name: 'スティール・ボール・ラン ジョジョの奇妙な冒険 1st STAGE', genres: [{ id: 16 }], original_language: 'ja' });
+      }
+      throw new Error(`未预期的请求: ${target}`);
+    }, () => getTmdbJaOriginalTitle('飙马野郎', null, 'Bahamut'));
+
+    assert.strictEqual(result.title, 'スティール・ボール・ラン ジョジョの奇妙な冒険', '出站检索词剥离分部标记');
+    assert.strictEqual(result.cnAlias, '飙马野郎 JOJO的奇妙冒险 第一赛段', '展示别名保持原样');
+  } finally {
+    Globals.envs.useBangumiData = savedUseBangumiData;
+    Globals.envs.tmdbApiKey = savedTmdbApiKey;
+  }
+});
+
+test('tmdb cleanSearchQuery 识别序数与中文赛段后缀', () => {
+  assert.strictEqual(cleanSearchQuery('ワンパンマン 2nd Season'), 'ワンパンマン', '序数 Season 识别为后缀');
+  assert.strictEqual(cleanSearchQuery('頭文字 D 1st stage'), '頭文字 D', '序数 stage 识别为后缀');
+  assert.strictEqual(cleanSearchQuery('飙马野郎 JOJO的奇妙冒险 第一赛段'), '飙马野郎 JOJO的奇妙冒险', '中文赛段识别为后缀');
+  assert.strictEqual(cleanSearchQuery('無職転生 第2期'), '無職転生', '第X期识别为后缀');
+  // 后缀判据与出站检索词剥离识别同一套季与分部标记
+  assert.strictEqual(cleanSearchQuery('ワンパンマン 2nd Season'), stripSeasonMarker('ワンパンマン 2nd Season'), '与出站剥离对序数标记的处理一致');
+  assert.strictEqual(cleanSearchQuery('飙马野郎 JOJO的奇妙冒险 第一赛段'), stripSeasonMarker('飙马野郎 JOJO的奇妙冒险 第一赛段'), '与出站剥离对中文赛段的处理一致');
+});
+
+test('tmdb cleanSearchQuery 副标题分隔判定', () => {
+  // 词内标点不构成副标题分隔
+  assert.strictEqual(cleanSearchQuery('Re:ゼロから始める異世界生活'), 'Re:ゼロから始める異世界生活', '词内冒号不截断');
+  assert.strictEqual(cleanSearchQuery('も～っと！おジャ魔女どれみ'), 'も～っと！おジャ魔女どれみ', '词内波浪号不截断');
+  assert.strictEqual(cleanSearchQuery('地獄先生ぬ～べ～'), '地獄先生ぬ～べ～', '两端词内波浪号不截断');
+  assert.strictEqual(cleanSearchQuery('哆啦A梦：大雄的恐龙'), '哆啦A梦：大雄的恐龙', '中文冒号副标题不截断');
+  assert.strictEqual(cleanSearchQuery('CØDE:BREAKER OAD'), 'CØDE:BREAKER', '词内冒号保留而影片类型后缀仍剥离');
+  // 真正的副标题仍被剥离
+  assert.strictEqual(cleanSearchQuery('Fate/stay night: Unlimited Blade Works'), 'Fate/stay night', '冒号带空白时剥离副标题');
+  assert.strictEqual(cleanSearchQuery('進擊的巨人: Wall Sina,Goodbye'), '進擊的巨人', '冒号带空白时剥离中文片名副标题');
+  assert.strictEqual(cleanSearchQuery('我們不可能成為戀人！絕對不行。（※似乎可行？）～NextShine～'), '我們不可能成為戀人！絕對不行。（※似乎可行？）', '全角波浪号副标题被剥离');
+  assert.strictEqual(cleanSearchQuery('わたしが恋人になれるわけないじゃん、ムリムリ!（※ムリじゃなかった!?）〜ネクストシャイン！〜'), 'わたしが恋人になれるわけないじゃん、ムリムリ!（※ムリじゃなかった!?）', 'U+301C 波浪号副标题被剥离');
+  assert.strictEqual(cleanSearchQuery('あした元気にな~れ!~半分のさつまいも~'), 'あした元気にな~れ!', '词内波浪号保留且其后副标题被剥离');
+});
+
+test('tmdb cleanSearchQuery 后缀白名单的影片类型与篇分支', () => {
+  assert.strictEqual(cleanSearchQuery('呪術廻戦 劇場版'), '呪術廻戦', '剧场版标记被剥离');
+  assert.strictEqual(cleanSearchQuery('STEINS;GATE OVA'), 'STEINS;GATE', 'OVA 标记被剥离且分号不触发截断');
+  assert.strictEqual(cleanSearchQuery('链锯人 蕾塞篇'), '链锯人', '「篇」标记被剥离');
+  assert.strictEqual(cleanSearchQuery('クレヨンしんちゃん 2'), 'クレヨンしんちゃん', '尾部季号数字被剥离');
+});
+
+test('tmdb smartTitleReplace 保留季与分部标记后缀', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  // 单条时走 LCP 模式，季与分部标记后缀保留
+  const single = [{ title: '進撃の巨人 The Final Season Part 2' }];
+  smartTitleReplace(single, '進擊的巨人');
+  assert.strictEqual(single[0]._displayTitle, '進擊的巨人 The Final Season Part 2', 'LCP 模式保留季与分部标记后缀');
+  // 多条且无公共前缀时走分隔符模式，词内冒号不构成副标题分隔
+  const multi = [{ title: 'Re:ゼロから始める異世界生活' }, { title: 'おジャ魔女どれみ' }];
+  smartTitleReplace(multi, 'Re:从零开始的异世界生活');
+  assert.strictEqual(multi[0]._displayTitle, 'Re:ゼロから始める異世界生活', '词内冒号标题不按分隔符拆分成前后缀');
+});
+
+test('tmdb smartTitleReplace 常规标题的替换结果', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  // 单条：整条即公共前缀，替换为别名
+  const single = [{ title: 'GNOSIA' }];
+  smartTitleReplace(single, '古诺希亚');
+  assert.strictEqual(single[0]._displayTitle, '古诺希亚', '整条标题替换为别名');
+  // 多条：公共前缀替换为别名，其后的季号与副标题保留
+  const multi = [
+    { title: 'SPY×FAMILY 間諜家家酒 Season 3' },
+    { title: 'SPY×FAMILY 間諜家家酒 CODE: White' },
+    { title: 'SPY×FAMILY 間諜家家酒 Season 2' },
+    { title: 'SPY×FAMILY 間諜家家酒' },
+  ];
+  smartTitleReplace(multi, '间谍过家家');
+  assert.deepStrictEqual(multi.map((anime) => anime._displayTitle), [
+    '间谍过家家 Season 3',
+    '间谍过家家 CODE: White',
+    '间谍过家家 Season 2',
+    '间谍过家家',
+  ], '公共前缀替换为别名且保留其后的季号与副标题');
+});
+
+test('tmdb smartTitleReplace 分隔符模式与前缀保护模式', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  // 无公共前缀时按首个分隔符拆分为前后缀，前缀替换为别名
+  const delimiter = [{ title: 'Re:Zero kara Hajimeru Isekai Seikatsu' }, { title: 'この素晴らしい世界に祝福を!' }];
+  smartTitleReplace(delimiter, 'Re:从零开始的异世界生活');
+  assert.strictEqual(delimiter[0]._displayTitle, 'Re:从零开始的异世界生活 kara Hajimeru Isekai Seikatsu', '前缀替换为别名并保留其后内容');
+  // 前缀本身是季与分部标记时保留前缀
+  const prefixed = [{ title: '第2期 無職転生' }, { title: 'この素晴らしい世界に祝福を!' }];
+  smartTitleReplace(prefixed, '无职转生');
+  assert.strictEqual(prefixed[0]._displayTitle, '第2期 无职转生', '前缀为季号时保留前缀并替换其后内容');
+});
+
 test('nipaplay 中转弹弹play服务端工具函数', async (t) => {
 
   // parseNipaplayRelatedLinks：解析 urls（|）与 shift（,），按主机名映射到内部源并还原时间偏移
@@ -4460,6 +5274,351 @@ test('dandan formatComments 按实时拉取标记区分处理', () => {
 
   const native = { cid: 1, p: '12.34,1,25,aFFFFFF,0', m: 'y' };
   assert.strictEqual(dandan.formatComments([native])[0].p, '12.34,1,25,a16777215,0', '原生弹幕执行颜色转换');
+});
+
+test('Bangumi Data isCacheFormatOutdated 缓存未按当前规则裁剪时触发重新下载', () => {
+  // 判定依据为缓存内登记的字段清单：缺少清单登记或清单与当前不一致时，缓存即缺少当前规则保留的字段
+  assert.strictEqual(isCacheFormatOutdated({ items: [{ title: 'x', _flatText: 'x' }] }), true, '无字段清单登记的缓存需重新下载');
+  assert.strictEqual(isCacheFormatOutdated({ items: [{ title: 'x' }], prunedFields: null }), true, '字段清单为空时需重新下载');
+  assert.strictEqual(isCacheFormatOutdated({ items: [{ title: 'x' }], prunedFields: ['title', 'type'] }), true, '字段清单与当前不一致需重新下载');
+  assert.strictEqual(isCacheFormatOutdated({ items: [{ title: 'x' }], prunedFields: PRUNED_ITEM_FIELDS }), false, '字段清单一致无需重新下载');
+  assert.strictEqual(isCacheFormatOutdated({ items: [] }), false, '空缓存不触发');
+  assert.strictEqual(isCacheFormatOutdated(null), false, '无缓存不触发');
+});
+
+test('dandan fillMissingEpisodes 详情集缺失时按 Bangumi Data 放送区间补全', async () => {
+  // 库兹马唱歌的话家里哆啰啰：详情接口 11 集（末集 2026-06-18），Bangumi Data 放送区间 2026-04-09 ~ 2026-06-25
+  const buildEpisode = (n, airDate) => ({
+    seasonId: null,
+    episodeId: Number(`18622${String(n).padStart(4, '0')}`),
+    episodeTitle: `第${n}话`,
+    episodeNumber: String(n),
+    lastWatched: null,
+    airDate,
+  });
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const kujimaBegin = Date.UTC(2026, 3, 9);
+  const kujimaEpisodes = Array.from({ length: 11 }, (_, i) => buildEpisode(i + 1, new Date(kujimaBegin + i * weekMs).toISOString()));
+  const kujimaDetail = {
+    animeTitle: '库兹马唱歌的话家里哆啰啰',
+    bangumiUrl: 'https://bangumi.tv/subject/493804',
+    titles: [{ language: '主标题', title: '库兹马唱歌的话家里哆啰啰' }],
+    metadata: ['话数: 12', '放送开始: 2026年4月9日'],
+  };
+  const kujimaItem = { siteId: '493804', begin: '2026-04-09T13:30:00.000Z', end: '2026-06-25T14:00:00.000Z' };
+  const lookupKujima = async () => kujimaItem;
+
+  // 末集放送日期与放送结束相差一周：按放送区间补齐第 12 话
+  const filled = await fillMissingEpisodes(18622, kujimaDetail, kujimaEpisodes, lookupKujima);
+  assert.strictEqual(filled.length, 12, '按放送区间补齐至 12 话');
+  assert.deepStrictEqual(filled.slice(0, 11), kujimaEpisodes, '已有集保持原样且顺序不变');
+  assert.strictEqual(filled[11].episodeId, 186220012, '集 id 为 animeId + 4 位集号');
+  assert.strictEqual(filled[11].episodeNumber, '12');
+  assert.strictEqual(`【dandan】 ${filled[11].episodeTitle}`, '【dandan】 第12话 （系统补全）', '标题沿用既有格式并标记系统补全');
+
+  // 重复调用：已补齐的集不重复补全
+  const refilled = await fillMissingEpisodes(18622, kujimaDetail, filled, lookupKujima);
+  assert.strictEqual(refilled.length, 12, '重复调用不重复补全');
+  assert.deepStrictEqual(refilled.slice(0, 12), filled, '重复调用保持集列表不变');
+
+  // 末集放送日期与放送结束相同或相差不超过两天：中途有周未放送，集数正确，不补全
+  const aligned = await fillMissingEpisodes(
+    18622, kujimaDetail, [...kujimaEpisodes.slice(0, 10), buildEpisode(11, '2026-06-25T00:00:00')], lookupKujima,
+  );
+  assert.strictEqual(aligned.length, 11, '末集与放送结束对齐时不补全');
+
+  // 放送结束不可知且已存在集：不补全
+  const noEnd = await fillMissingEpisodes(18622, kujimaDetail, kujimaEpisodes, async () => ({ siteId: '493804', begin: '2026-04-09T13:30:00.000Z', end: '' }));
+  assert.strictEqual(noEnd.length, 11, '放送结束不可知时不补全');
+
+  // 放送开始不可知（Bangumi Data 无 begin，详情接口 metadata 仅到年）：不补全
+  const fxDetail = {
+    animeTitle: 'FX战士久留美',
+    bangumiUrl: 'https://bangumi.tv/subject/622288',
+    titles: [{ language: '主标题', title: 'FX战士久留美' }],
+    metadata: ['话数: *', '放送开始: 2026年'],
+  };
+  const unknownBegin = await fillMissingEpisodes(18622, fxDetail, kujimaEpisodes, async () => ({ siteId: '622288', begin: '', end: '' }));
+  assert.strictEqual(unknownBegin.length, 11, '放送开始不可知时不补全');
+
+  // Bangumi Data 无放送开始但详情接口 metadata 提供完整日期：回退到 metadata 补全
+  const fromMetadata = await fillMissingEpisodes(18622, kujimaDetail, kujimaEpisodes, async () => ({ siteId: '493804', begin: '', end: '2026-06-25T14:00:00.000Z' }));
+  assert.strictEqual(fromMetadata.length, 12, '回退到详情接口 metadata 的放送开始');
+
+  // 末集放送日期为空：按一周一集计算
+  const nullAirDate = [...kujimaEpisodes];
+  nullAirDate[10] = { ...nullAirDate[10], airDate: null };
+  assert.strictEqual((await fillMissingEpisodes(18622, kujimaDetail, nullAirDate, lookupKujima)).length, 12, '末集放送日期为空时按一周一集计算');
+
+  // 整部无集且放送结束可知：按放送区间推算总集数
+  const fxWithEnd = await fillMissingEpisodes(19847, fxDetail, [], async () => ({ siteId: '622288', begin: '2026-10-01T12:30:00.000Z', end: '2026-10-22T12:30:00.000Z' }));
+  assert.strictEqual(fxWithEnd.length, 4, '整部无集时按放送区间补全');
+  assert.strictEqual(fxWithEnd[0].episodeId, 198470001, '首集 id 为 animeId + 0001');
+  assert.strictEqual(`【dandan】 ${fxWithEnd[0].episodeTitle}`, '【dandan】 第1话 （系统补全）', '首集标题沿用既有格式');
+  assert.deepStrictEqual(fxWithEnd.map((ep) => ep.episodeNumber), ['1', '2', '3', '4'], '集号自 1 顺延');
+
+  // 整部无集且放送结束不可知：按当前周推算并额外多补两集（3 周 + 当周 + 额外 2）
+  const beginThreeWeeksAgo = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+  const fxNoEnd = await fillMissingEpisodes(19847, fxDetail, [], async () => ({ siteId: '622288', begin: beginThreeWeeksAgo, end: '' }));
+  assert.strictEqual(fxNoEnd.length, 6, '按当前周推算并额外多补两集');
+
+  // 末集放送日期在一周内：不可能缺集，不查询 Bangumi Data 直接返回
+  let lookupCalled = false;
+  const recentEpisodes = [...kujimaEpisodes];
+  recentEpisodes[10] = { ...recentEpisodes[10], airDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() };
+  const recentResult = await fillMissingEpisodes(18622, kujimaDetail, recentEpisodes, async () => { lookupCalled = true; return kujimaItem; });
+  assert.strictEqual(recentResult.length, 11, '末集放送日期在一周内时不补全');
+  assert.strictEqual(lookupCalled, false, '末集放送日期在一周内时不查询 Bangumi Data');
+
+  // 按放送区间推算的集数未超过现有正片集数：不补全，并记录跳过原因
+  const savedLogLevel = Globals.envs.logLevel;
+  const savedLogBuffer = Globals.envs.logBuffer;
+  Globals.envs.logLevel = 'info';
+  Globals.envs.logBuffer = [];
+  const notExceeded = await fillMissingEpisodes(18622, kujimaDetail, kujimaEpisodes, async () => ({ siteId: '493804', begin: '2026-04-09T13:30:00.000Z', end: '2026-06-11T14:00:00.000Z' }));
+  const skipReasonLogged = Globals.envs.logBuffer.some((entry) => String(entry.message).includes('未超过现有 11 集'));
+  Globals.envs.logLevel = savedLogLevel;
+  Globals.envs.logBuffer = savedLogBuffer;
+  assert.strictEqual(notExceeded.length, 11, '按放送区间推算集数未超过现有集数时不补全');
+  assert.strictEqual(skipReasonLogged, true, '记录推算集数未超过现有集数的跳过原因');
+
+  // 番外集不参与正片集数计算，补全集插入在正片之后、番外之前
+  const withSpecials = [...kujimaEpisodes, { seasonId: null, episodeId: 186229001, episodeTitle: 'S1 特番', episodeNumber: 'S1', lastWatched: null, airDate: null }];
+  const specialsFilled = await fillMissingEpisodes(18622, kujimaDetail, withSpecials, lookupKujima);
+  assert.strictEqual(specialsFilled.length, 13, '番外不参与正片集数计算');
+  assert.strictEqual(specialsFilled[11].episodeId, 186220012, '补全集插入在正片之后');
+  assert.strictEqual(specialsFilled[12].episodeNumber, 'S1', '番外保持在末尾');
+
+  // 查不到对应条目：维持原集列表
+  assert.strictEqual((await fillMissingEpisodes(18622, kujimaDetail, kujimaEpisodes, async () => null)).length, 11, '查不到对应条目时不补全');
+
+  // 放送截止与用户系统时间均不可知：按默认集数补全（运行期时间不可用时的兜底）
+  const defaultCount = await fillMissingEpisodes(18622, kujimaDetail, [], async () => ({ siteId: '493804', begin: '', end: '' }), Number.NaN);
+  assert.strictEqual(defaultCount.length, 26, '放送截止与系统时间均不可知时按默认集数补全');
+
+  // 条目定位：优先 anidb 站点 id 与弹弹play 作品 id 一致且唯一的一条
+  const anidbOnly = [{ matchedSiteKey: 'anidb', siteId: '18622', begin: 'anidb-begin', end: 'anidb-end' }];
+  assert.strictEqual(selectBangumiDataItem(anidbOnly, 18622, '493804').begin, 'anidb-begin', '按 anidb 站点 id 对齐');
+  // 同一 anidb id 对应多个分部条目时回退到 bangumi 站点 id
+  const ambiguous = [
+    { matchedSiteKey: 'anidb', siteId: '19287', begin: 'stage1' },
+    { matchedSiteKey: 'anidb', siteId: '19287', begin: 'stage23' },
+    { matchedSiteKey: 'bangumi', siteId: '551918', begin: 'stage1-by-bangumi' },
+  ];
+  assert.strictEqual(selectBangumiDataItem(ambiguous, 19287, '551918').begin, 'stage1-by-bangumi', 'anidb 不唯一时回退 bangumi 站点 id');
+  // 作品在 Bangumi Data 中没有 anidb 站点记录时回退到 bangumi 站点 id
+  const bangumiOnly = [{ matchedSiteKey: 'bangumi', siteId: '622288', begin: 'bangumi-begin' }];
+  assert.strictEqual(selectBangumiDataItem(bangumiOnly, 19847, '622288').begin, 'bangumi-begin', '无 anidb 条目时回退 bangumi 站点 id');
+  // 两种站点 id 都无法对应
+  assert.strictEqual(selectBangumiDataItem(bangumiOnly, 19847, '999999'), null, '站点 id 均不匹配时不定位');
+  assert.strictEqual(selectBangumiDataItem([], 19847, '622288'), null, '无搜索结果时不定位');
+
+  // 本地条目不可得时经默认查表回退：整部无集仍按详情接口 metadata 的放送开始推算
+  clearBangumiDataCache(false);
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  Globals.envs.useBangumiData = false;
+  const withoutLocalItem = await fillMissingEpisodes(18622, kujimaDetail, []);
+  Globals.envs.useBangumiData = savedUseBangumiData;
+  assert.ok(withoutLocalItem.length > 0, '本地条目不可得时按详情接口 metadata 的放送开始补全');
+  assert.strictEqual(withoutLocalItem[0].episodeId, 186220001, '补全集首集 id 为 animeId + 0001');
+  assert.strictEqual(`【dandan】 ${withoutLocalItem[0].episodeTitle}`, '【dandan】 第1话 （系统补全）', '补全集首集标题沿用既有格式');
+
+  // 推算集数上限：放送开始取自真实长寿番条目（サザエさん，1969-10-05），整部无集时按放送区间线性推集不会超过上限
+  const ancientBegin = new Date(Date.UTC(1969, 9, 5)).toISOString();
+  Globals.envs.logLevel = 'info';
+  Globals.envs.logBuffer = [];
+  const cappedNoEnd = await fillMissingEpisodes(18622, kujimaDetail, [], async () => ({ siteId: '493804', begin: ancientBegin, end: '' }));
+  const capLogged = Globals.envs.logBuffer.some((entry) => String(entry.message).includes('超过上限按 100 集补全'));
+  Globals.envs.logLevel = savedLogLevel;
+  Globals.envs.logBuffer = savedLogBuffer;
+  assert.strictEqual(cappedNoEnd.length, 100, '按当前周推算超过上限时按上限补全');
+  assert.strictEqual(capLogged, true, '补全日志标注集数上限');
+  // 已有集时按放送区间推算同样受上限约束
+  const cappedTail = await fillMissingEpisodes(18622, kujimaDetail, kujimaEpisodes, async () => ({ siteId: '493804', begin: ancientBegin, end: new Date(Date.UTC(2099, 0, 1)).toISOString() }));
+  assert.strictEqual(cappedTail.length, 100, '补齐末集之后的集同样受上限约束');
+  assert.strictEqual(cappedTail[99].episodeId, 186220100, '上限处的集 id 为 animeId + 0100');
+
+  // 详情接口 metadata 的「放送开始」解析
+  assert.notStrictEqual(extractBroadcastStart(['放送开始: 2026年4月9日']), null, '完整日期可解析');
+  assert.strictEqual(extractBroadcastStart(['放送开始: 2026年']), null, '仅到年不可解析');
+  assert.strictEqual(extractBroadcastStart(['放送开始: 2026年4月']), null, '缺日不可解析');
+  assert.strictEqual(extractBroadcastStart(['话数: 12']), null, '无放送开始不可解析');
+  assert.strictEqual(extractBroadcastStart(null), null, '空入参不可解析');
+});
+
+test('dandan getEpisodes 详情接口集为空或不可用时经 NipaPlay 中转弹弹play服务端兜底', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedAccount = Globals.envs.dandanplayAccount;
+  const savedPassword = Globals.envs.dandanplayPassword;
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  try {
+    // 账号未配置时不请求详情接口
+    Globals.envs.dandanplayAccount = '';
+    Globals.envs.dandanplayPassword = '';
+    assert.strictEqual(await fetchNipaplayBangumiDetail(18622), null, '账号未配置时返回 null');
+
+    // 账号配置后：详情接口返回 401 时清除令牌重新登录并重试一次
+    Globals.envs.useBangumiData = false;
+    Globals.envs.dandanplayAccount = `detail-probe-${Date.now()}`;
+    Globals.envs.dandanplayPassword = 'detail-probe-password';
+    let loginCount = 0;
+    let detailCount = 0;
+    const episodes = [{ seasonId: null, episodeId: 186220001, episodeTitle: '第1话', episodeNumber: '1', lastWatched: null, airDate: null }];
+    const mockFetch = async (url, options = {}) => {
+      const target = String(url);
+      if (target.endsWith('/api/v2/login')) {
+        loginCount++;
+        return mockJsonResponse({ token: `detail-token-${loginCount}`, tokenExpireTime: '2099-01-01T00:00:00Z' }, url);
+      }
+      if (target.endsWith('/api/v2/bangumi/18622')) {
+        detailCount++;
+        if (detailCount === 1) {
+          return { ok: false, status: 401, url, headers: new Headers({ 'content-type': 'application/json' }), text: async () => JSON.stringify({ errorMessage: '登录已失效' }) };
+        }
+        return mockJsonResponse({ bangumi: { animeId: 18622, episodes }, success: true }, url);
+      }
+      throw new Error(`未预期的请求: ${target}`);
+    };
+
+    // 弹弹详情接口返回空集 → 走 NipaPlay 详情兜底（含 401 重登重试）
+    const mirrorEmpty = mockJsonResponse({ bangumi: { animeId: 18622, titles: [], episodes: [], relateds: [], metadata: [] }, success: true }, 'danmaku-anywhere 镜像弹弹play服务端');
+    const routedFetch = async (url, options = {}) => {
+      if (String(url).includes('api.danmaku.weeblify.app')) return mirrorEmpty;
+      return mockFetch(url, options);
+    };
+    const result = await withMockFetch(routedFetch, () => new DandanSource().getEpisodes(18622));
+    assert.deepStrictEqual(result.episodes, episodes, 'danmaku-anywhere 镜像弹弹play服务端无集时取 NipaPlay 中转弹弹play服务端详情');
+    assert.strictEqual(detailCount, 2, '401 后重试一次详情请求');
+    assert.strictEqual(loginCount, 2, '401 后重新登录');
+
+    // 镜像详情请求经重试后仍不可用（httpGet 以异常抛出）→ 同一兜底路径，详情连同标签与类型描述取自 NipaPlay
+    const nipaplayDetail = {
+      animeId: 18622,
+      titles: [{ language: '主标题', title: '库兹马唱歌的话家里哆啰啰' }],
+      episodes,
+      relateds: [],
+      tags: [{ name: '3D' }],
+      type: 'tvseries',
+      typeDescription: 'TV动画',
+      metadata: [],
+    };
+    const detailOkFetch = async (url) => {
+      const target = String(url);
+      if (target.endsWith('/api/v2/login')) return mockJsonResponse({ token: 'detail-ok-token', tokenExpireTime: '2099-01-01T00:00:00Z' }, url);
+      if (target.endsWith('/api/v2/bangumi/18622')) return mockJsonResponse({ bangumi: nipaplayDetail, success: true }, url);
+      throw new Error(`未预期的请求: ${target}`);
+    };
+    const throwingMirrorFetch = async (url, options = {}) => {
+      if (String(url).includes('api.danmaku.weeblify.app')) throw new Error('镜像详情接口不可用');
+      return detailOkFetch(url, options);
+    };
+    const fromThrow = await withMockFetch(throwingMirrorFetch, () => new DandanSource().getEpisodes(18622));
+    assert.deepStrictEqual(fromThrow.episodes, episodes, '镜像详情请求抛出异常时经 NipaPlay 中转弹弹play服务端兜底');
+    assert.strictEqual(fromThrow.typeDescription, '3DTV动画', '详情标签识别的 3D 追加至类型描述');
+
+    // 镜像返回 200 但无 bangumi 数据 → 同一兜底路径
+    const noBangumiMirror = mockJsonResponse({ success: true }, 'danmaku-anywhere 镜像弹弹play服务端');
+    const noBangumiFetch = async (url, options = {}) => {
+      if (String(url).includes('api.danmaku.weeblify.app')) return noBangumiMirror;
+      return detailOkFetch(url, options);
+    };
+    const fromNoBangumi = await withMockFetch(noBangumiFetch, () => new DandanSource().getEpisodes(18622));
+    assert.deepStrictEqual(fromNoBangumi.episodes, episodes, '镜像无 bangumi 数据时经 NipaPlay 中转弹弹play服务端兜底');
+
+    // 镜像返回 200 但无 data → 同一兜底路径
+    const noDataMirror = mockJsonResponse(null, 'danmaku-anywhere 镜像弹弹play服务端');
+    const noDataFetch = async (url, options = {}) => {
+      if (String(url).includes('api.danmaku.weeblify.app')) return noDataMirror;
+      return detailOkFetch(url, options);
+    };
+    const fromNoData = await withMockFetch(noDataFetch, () => new DandanSource().getEpisodes(18622));
+    assert.deepStrictEqual(fromNoData.episodes, episodes, '镜像无 data 时经 NipaPlay 中转弹弹play服务端兜底');
+
+    // 详情请求失败：返回 null，由调用方沿用原详情数据
+    Globals.envs.dandanplayAccount = `detail-fail-${Date.now()}`;
+    const failingFetch = async (url, options = {}) => {
+      if (String(url).endsWith('/api/v2/login')) return mockJsonResponse({ token: 'detail-token', tokenExpireTime: '2099-01-01T00:00:00Z' }, url);
+      return { ok: false, status: 500, url, headers: new Headers({ 'content-type': 'application/json' }), text: async () => JSON.stringify({ errorMessage: '详情服务不可用' }) };
+    };
+    assert.strictEqual(await withMockFetch(failingFetch, () => fetchNipaplayBangumiDetail(18622)), null, '详情请求失败时返回 null');
+  } finally {
+    Globals.envs.dandanplayAccount = savedAccount;
+    Globals.envs.dandanplayPassword = savedPassword;
+    Globals.envs.useBangumiData = savedUseBangumiData;
+  }
+});
+
+test('dandan resolveUnavailableDetail 详情不可用时按 Bangumi Data 兜底', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedAccount = Globals.envs.dandanplayAccount;
+  const savedPassword = Globals.envs.dandanplayPassword;
+  try {
+    // NipaPlay 账号未配置：兜底直接落到 Bangumi Data
+    Globals.envs.dandanplayAccount = '';
+    Globals.envs.dandanplayPassword = '';
+    const source = new DandanSource();
+    // 描绘直至生命尽头：Bangumi Data 放送区间 2026-07-03 ~ 2026-09-25（一周一集共 12 集）
+    const item = {
+      siteId: '19232',
+      begin: '2026-07-03T14:30:00.000Z',
+      end: '2026-09-25T14:59:00.000Z',
+      typeId: 'tvseries',
+      typeStr: 'TV动画',
+      titles: ['描绘直至生命尽头', '画完这个就去死', '畫完這個再去死', 'これ描いて死ね'],
+    };
+
+    // 常规：镜像命中条目（不带 _bangumiDataHit）由 Bangumi Data 补全集列表与标题别名
+    const mirrored = await source.resolveUnavailableDetail(
+      19232, { animeTitle: '描绘直至生命尽头(2026)【TV动画】from dandan', aliases: [] }, async () => item,
+    );
+    assert.strictEqual(mirrored.episodes.length, 13, '按放送区间推算 13 集（含首尾各一周）');
+    assert.strictEqual(mirrored.episodes[0].episodeId, 192320001, '补全集 id 为 animeId + 4 位集号');
+    assert.strictEqual(`【dandan】 ${mirrored.episodes[0].episodeTitle}`, '【dandan】 第1话 （系统补全）', '补全集标题沿用既有格式');
+    assert.deepStrictEqual(mirrored.titles, item.titles, '镜像命中时由 Bangumi Data 补标题别名');
+    assert.strictEqual(mirrored.type, 'tvseries', '类型沿用 Bangumi Data 映射');
+    assert.strictEqual(mirrored.typeDescription, 'TV动画', '类型描述沿用 Bangumi Data 映射');
+    assert.deepStrictEqual(mirrored.relateds, [], '相关作品无来源');
+    assert.strictEqual(mirrored.imageUrl, null, '封面无来源');
+
+    // 边缘：Bangumi Data 本地命中条目已携带标题别名，不重复补全
+    const local = await source.resolveUnavailableDetail(
+      19232, { animeTitle: '描绘直至生命尽头(2026)【TV动画】from dandan', aliases: ['画完这个再去死'], _bangumiDataHit: true }, async () => item,
+    );
+    assert.strictEqual(local.episodes.length, 13, '本地命中条目同样补全集列表');
+    assert.deepStrictEqual(local.titles, [], '本地命中时标题别名已由条目携带，不重复补全');
+
+    // 缺失：Bangumi Data 检索不到条目时记录日志并返回空结构，不构造残缺条目
+    const savedLogLevel = Globals.envs.logLevel;
+    const savedLogBuffer = Globals.envs.logBuffer;
+    Globals.envs.logLevel = 'info';
+    Globals.envs.logBuffer = [];
+    const missing = await source.resolveUnavailableDetail(
+      19232, { animeTitle: '检索不到的作品(2026)【TV动画】from dandan', aliases: [] }, async () => null,
+    );
+    const missLogged = Globals.envs.logBuffer.some((entry) => String(entry.message).includes('Bangumi Data 未命中条目'));
+    Globals.envs.logLevel = savedLogLevel;
+    Globals.envs.logBuffer = savedLogBuffer;
+    assert.strictEqual(missLogged, true, '检索不到条目时记录未命中日志');
+    assert.deepStrictEqual(
+      missing, { episodes: [], titles: [], relateds: [], type: null, typeDescription: null, imageUrl: null },
+      '检索不到条目时返回空结构',
+    );
+    // 默认查表：未注入查表函数时按搜索条目的标题与别名在本地索引逐个检索；本地索引为空时同样返回空结构
+    const savedUseBangumiData = Globals.envs.useBangumiData;
+    Globals.envs.useBangumiData = false;
+    clearBangumiDataCache(false);
+    const byDefaultLookup = await source.resolveUnavailableDetail(
+      19232, { animeTitle: '检索不到的作品(2026)【TV动画】from dandan', aliases: ['检索不到的作品'] },
+    );
+    Globals.envs.useBangumiData = savedUseBangumiData;
+    assert.deepStrictEqual(
+      byDefaultLookup, { episodes: [], titles: [], relateds: [], type: null, typeDescription: null, imageUrl: null },
+      '经默认查表未命中条目时返回空结构',
+    );
+  } finally {
+    Globals.envs.dandanplayAccount = savedAccount;
+    Globals.envs.dandanplayPassword = savedPassword;
+  }
 });
 
 test('dandan 关联链接分发仅限已在 SOURCE_ORDER 开启的源', async () => {
@@ -6787,4 +7946,75 @@ test('Forward bundles preserve the search-to-comment flow without Node storage',
       ]);
     });
   }
+});
+
+test('aiyifan App chain keeps years and accepts legacy segment links', async t => {
+  const makeSource = () => {
+    const source = new AiyifanSource();
+    source.searchDrama = async () => ({ data: { list: [{
+      mediaKey: 'media', title: '年份测试', mediaType: '电视剧',
+      postTime: '2020-01-01T00:00:00Z', coverImgUrl: 'https://example.com/cover.jpg'
+    }] } });
+    return source;
+  };
+
+  await t.test('a slow App search retains an already resolved year', async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+    const source = makeSource();
+    source.signingProvider.lookupYears = async () => new Map([['media', 2003]]);
+    const searchDrama = source.searchDrama;
+    source.searchDrama = async () => {
+      await Promise.resolve();
+      t.mock.timers.tick(AIYIFAN_WEB_YEAR_MAX_WAIT_MS + 1000);
+      return searchDrama();
+    };
+    assert.equal((await source.search('年份测试'))[0].year, 2003);
+  });
+
+  await t.test('missing and timed-out years remain unknown through detail creation', async t => {
+    resetSearchState();
+    const source = makeSource();
+    source.signingProvider.lookupYears = async () => new Map();
+    const results = await source.search('年份测试');
+    assert.equal(results[0].year, null);
+    source.getEpisodes = async () => [{ title: '01', link: 'https://www.yfsp.tv/play/media?id=episode' }];
+    const details = new Map();
+    const [anime] = await source.handleAnimes(results, '年份测试', [], details);
+    assert.ok(anime.animeTitle.includes('(N/A)'));
+    assert.equal(anime.startDate, '');
+    assert.equal([...details.values()][0].startDate, '');
+
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    source.signingProvider.lookupYears = () => new Promise(() => {});
+    const pending = source.search('年份测试');
+    t.mock.timers.tick(AIYIFAN_WEB_YEAR_MAX_WAIT_MS);
+    assert.equal((await pending)[0].year, null);
+  });
+
+  await t.test('web keywords survive URL encoding without changing the signature input', () => {
+    const provider = new AiyifanAppSigningProvider();
+    const config = { publicKey: 'test-public', privateKey: 'test-private' };
+    for (const keyword of ['Love & Death', 'Re:从零开始#第二季', 'A+B']) {
+      const url = new URL('https://example.com/?' + provider.buildWebSignedQuery({ tags: keyword, page: 1 }, config));
+      assert.equal(url.searchParams.get('tags'), keyword);
+      assert.equal(url.searchParams.get('page'), '1');
+      assert.equal(url.searchParams.get('vv'), computeAiyifanWebSign(`tags=${keyword}&page=1`, config));
+      assert.equal(url.hash, '');
+    }
+  });
+
+  await t.test('direct links and both legacy wrappers reach the same episode', async () => {
+    const source = makeSource();
+    const link = 'https://www.yfsp.tv/play/media?id=episode';
+    const seen = [];
+    source.getEpisodeDanmu = async id => { seen.push(id); return [{ second: 1, contxt: 'test' }]; };
+    for (const url of [link,
+      'https://m10.yfsp.tv/api/video/getBarrage?uniqueKey=' + link,
+      'https://api.tripdata.app/api/Video/GetBarrages?link=' + encodeURIComponent(link)]) {
+      assert.equal((await source.getEpisodeSegmentDanmu({ url })).length, 1);
+    }
+    assert.deepEqual(seen, [link, link, link]);
+    assert.equal(source.resolveSegmentLink({ url: 'https://example.com/?site=yfsp.tv' }), null);
+    assert.equal(source.resolveSegmentLink({ url: 'not a URL' }), null);
+  });
 });
