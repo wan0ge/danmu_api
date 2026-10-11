@@ -1441,9 +1441,8 @@ function findBestAlignmentOffset(
     });
     const seasonShift = (minNormalA !== null && minNormalB !== null) ? (minNormalA - minNormalB) : null;
 
-    // 集号基准：两侧正片的最小集号相差不超过 1 时，双方采用同一套编号（较小一侧仅缺首集，
-    // 缺的那一集由同一来源的相邻分部条目提供）。基准不同（一方本季从 1 起、另一方承接
-    // 上一季顺延编号）时，同一号码落在双方各自不同的集上，此时号码相等不构成集号对齐的证据。
+    // 集号基准：两侧正片的最小集号相差不超过 1 时视为同一套编号，较小一侧仅缺首集且该集由同一来源的相邻分部条目提供
+    // 基准不同（一方本季从 1 起、另一方承接上一季顺延编号）时，同一号码落在双方各自不同的集上，号码相等不构成集号对齐的证据
     const sharesEpisodeBase = (seasonShift !== null && Math.abs(seasonShift) <= 1);
 
     // 动态计算搜索范围，以估算的季度偏移为中心向外延伸
@@ -2062,8 +2061,7 @@ function getMatchingCustomRule(pAnime, sAnime) {
         if (rule.primary.season !== null && (pSeason || 1) !== rule.primary.season) continue;
         if (rule.secondary.season !== null && (sSeason || 1) !== rule.secondary.season) continue;
 
-        // 分部标记择优：多条规则的标题在剥离分部噪声后相同时，规则中书写且与条目一致的分部数多者优先；
-        // 均无一致分部时按书写顺序取首个
+        // 分部标记择优：多条规则的标题在剥离分部噪声后相同时，规则中书写且与条目一致的分部数多者优先，均无一致分部时按书写顺序取首个
         if (firstMatch === null) firstMatch = rule;
         const score = countSharedMarkers(pPartMarkers, rule.primary.title) +
                       countSharedMarkers(sPartMarkers, rule.secondary.title);

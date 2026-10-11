@@ -223,7 +223,7 @@ test('merge findSecondaryMatches hanjutv 年份按无效日期处理', () => {
     episodeCount: titles.length,
   });
 
-  // hanjutv 的年份字段不准确，参与比对时按无效日期处理，年份差不再构成阻断
+  // hanjutv 的年份字段不准确，参与比对时按无效日期处理，年份差不参与判定
   assert.strictEqual(
     findSecondaryMatches(
       buildAnime(1, '大奉打更人(2024)【电视剧】from hanjutv', 'hanjutv', '2019-01-01T00:00:00.000Z', epTitles(42, '天涯思君不可忘')),
@@ -556,8 +556,7 @@ test('merge applyMergeLogic 副源分部集号自第二话起时按集号对齐'
     .filter(Boolean)
     .map((m) => Number(m[1]));
 
-  // 副源「第二&第三赛段」集号自第 2 话起（第 1 话由同一来源的「第一赛段」提供），
-  // 两侧最小集号相差 1 时仍按集号对齐，不得整体错位
+  // 副源「第二&第三赛段」集号自第 2 话起（第 1 话由同一来源的「第一赛段」提供），两侧最小集号相差 1 时仍按集号对齐
   const primary = buildAnime(19287, '飙马野郎 JOJO的奇妙冒险 第一赛段(2026)【网络放送】from dandan', 'dandan', '网络放送', [
     '第1话 飙马野郎', '第2话 マウンテン・ティムへの依頼', '第3话 砂漠で生まれたならず者', '第4话 悪魔の手のひら',
     '第5话', '第6话', '第7话', '第8话',
