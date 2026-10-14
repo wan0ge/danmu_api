@@ -194,12 +194,14 @@ function loadEnvVariables() {
                     scheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                 }
                 document.body.dataset.colorScheme = scheme;
+                document.documentElement.dataset.colorScheme = scheme;
             }
             updateColorSchemeToggle();
             // 用户未手动选择时，跟随系统深浅色变更
             window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
                 if (!getStoredColorScheme()) {
                     document.body.dataset.colorScheme = e.matches ? 'dark' : 'light';
+                    document.documentElement.dataset.colorScheme = e.matches ? 'dark' : 'light';
                     updateColorSchemeToggle();
                 }
             });
@@ -684,6 +686,7 @@ function toggleColorScheme() {
     const currentScheme = document.body.dataset.colorScheme || 'light';
     const newScheme = currentScheme === 'dark' ? 'light' : 'dark';
     document.body.dataset.colorScheme = newScheme;
+    document.documentElement.dataset.colorScheme = newScheme;
     storeColorScheme(newScheme);
     updateColorSchemeToggle();
 }

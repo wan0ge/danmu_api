@@ -43,6 +43,7 @@ function applyTheme(theme) {
     const normalizedTheme = String(theme || '').toLowerCase();
     const selectedTheme = Object.prototype.hasOwnProperty.call(UI_THEMES, normalizedTheme) ? normalizedTheme : 'lavender';
     document.body.dataset.theme = selectedTheme;
+    document.documentElement.dataset.theme = selectedTheme;
 
     document.querySelectorAll('[data-theme-option]').forEach(button => {
         const isSelected = button.dataset.themeOption === selectedTheme;
@@ -84,7 +85,8 @@ async function selectTheme(theme) {
     }
 }
 
-applyTheme(getStoredTheme() || document.body.dataset.theme || 'lavender');
+const initialTheme = getStoredTheme() || document.body.dataset.theme;
+if (initialTheme) applyTheme(initialTheme);
 
 // 导出当前管理员可见的环境变量配置
 async function exportSystemConfig() {

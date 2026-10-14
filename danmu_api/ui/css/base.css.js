@@ -23,16 +23,17 @@ html {
 
 html.modal-open {
     overflow-y: hidden;
-    background: rgba(0, 0, 0, 0.59);
 }
 
-html:has(body[data-color-scheme="dark"]).modal-open {
-    background: rgba(0, 0, 0, 0.95);
+/* 首帧引导：主题尚未落定前关闭颜色过渡，避免已存主题与默认主题之间出现渐变 */
+html.theme-booting body,
+html.theme-booting .header {
+    transition: none;
 }
+
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    background: var(--theme-page-bg);
     min-height: 100vh;
     min-height: 100dvh;
     padding: 10px;

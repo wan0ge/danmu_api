@@ -29,6 +29,23 @@ export const HTML_TEMPLATE = /* html */ `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="darkreader-lock">
     <meta name="color-scheme" content="light dark">
+    <script>
+        // 首帧主题引导：在样式应用前把已存主题写到根元素，使页面底色从第一帧起就用目标主题
+        (function () {
+            var root = document.documentElement;
+            root.classList.add('theme-booting');
+            try {
+                var storedTheme = localStorage.getItem('logvar_ui_theme');
+                var validThemes = ['lavender','shinyo','sakura','tianyi','hatsune','sakuragi','violet','amber'];
+                if (validThemes.indexOf(storedTheme) !== -1) { root.dataset.theme = storedTheme; }
+                var storedScheme = localStorage.getItem('logvar_ui_color_scheme');
+                if (storedScheme === 'dark' || storedScheme === 'light') { root.dataset.colorScheme = storedScheme; }
+                else if (window.matchMedia('(prefers-color-scheme: dark)').matches) { root.dataset.colorScheme = 'dark'; }
+            } catch (error) {
+                // localStorage may be unavailable in restricted browser contexts.
+            }
+        })();
+    </script>
     <title>LogVar弹幕API</title>
     <link rel="icon" type="image/jpg" href="https://i.mji.rip/2025/09/27/eedc7b701c0fa5c1f7c175b22f441ad9.jpeg">
     <link rel="apple-touch-icon" href="https://i.mji.rip/2025/09/27/eedc7b701c0fa5c1f7c175b22f441ad9.jpeg">
@@ -43,16 +60,17 @@ export const HTML_TEMPLATE = /* html */ `
     ${iconsSpriteContent}
     <script>
         try {
-            var storedTheme = localStorage.getItem('logvar_ui_theme');
-            var validThemes = ['lavender','shinyo','sakura','tianyi','hatsune','sakuragi','violet','amber'];
-            if (validThemes.indexOf(storedTheme) !== -1) { document.body.dataset.theme = storedTheme; }
-            var storedScheme = localStorage.getItem('logvar_ui_color_scheme');
-            if (storedScheme === 'dark' || storedScheme === 'light') {
-                document.body.dataset.colorScheme = storedScheme;
-            }
+            var root = document.documentElement;
+            if (root.dataset.theme) { document.body.dataset.theme = root.dataset.theme; }
+            if (root.dataset.colorScheme) { document.body.dataset.colorScheme = root.dataset.colorScheme; }
         } catch (error) {
             // localStorage may be unavailable in restricted browser contexts.
         }
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                document.documentElement.classList.remove('theme-booting');
+            });
+        });
     </script>
     <div class="container">
         <div class="corner-fold"></div>

@@ -207,8 +207,8 @@ export const componentsCssContent = /* css */ `
 
 .favorite-action-btn:disabled,
 .favorite-action-btn:disabled:hover,
-body[data-theme] .favorite-action-btn:disabled,
-body[data-theme] .favorite-action-btn:disabled:hover {
+:is(html, body)[data-theme] .favorite-action-btn:disabled,
+:is(html, body)[data-theme] .favorite-action-btn:disabled:hover {
     background: #d1d5db !important;
     color: #6b7280 !important;
     border-color: #d1d5db !important;
@@ -258,8 +258,8 @@ body[data-theme] .favorite-action-btn:disabled:hover {
 
 .favorite-schedule-btn:disabled,
 .favorite-schedule-btn:disabled:hover,
-body[data-theme] .favorite-schedule-btn:disabled,
-body[data-theme] .favorite-schedule-btn:disabled:hover {
+:is(html, body)[data-theme] .favorite-schedule-btn:disabled,
+:is(html, body)[data-theme] .favorite-schedule-btn:disabled:hover {
     background: #d1d5db !important;
     color: #6b7280 !important;
     border-color: #d1d5db !important;
@@ -1240,8 +1240,8 @@ body.modal-open {
     font-size: 13px;
 }
 
-/* 通用复选框：appearance 自绘控制勾选色；body[data-theme] 前缀将特异性提至 3002，压过 .form-group input 的背景/边框(2002)与尺寸/内边距(1001) */
-body[data-theme] input[type="checkbox"].app-checkbox {
+/* 通用复选框：appearance 自绘控制勾选色；:is(html, body)[data-theme] 前缀将特异性提至 3002，压过 .form-group input 的背景/边框(2002)与尺寸/内边距(1001) */
+:is(html, body)[data-theme] input[type="checkbox"].app-checkbox {
     width: 16px;
     height: 16px;
     margin: 0;
@@ -1257,12 +1257,12 @@ body[data-theme] input[type="checkbox"].app-checkbox {
     border-radius: 3px;
 }
 
-body[data-theme] input[type="checkbox"].app-checkbox:checked {
+:is(html, body)[data-theme] input[type="checkbox"].app-checkbox:checked {
     background: var(--theme-accent);
     border-color: var(--theme-accent);
 }
 
-body[data-theme] input[type="checkbox"].app-checkbox:checked::after {
+:is(html, body)[data-theme] input[type="checkbox"].app-checkbox:checked::after {
     content: "";
     position: absolute;
     left: 5px;
@@ -1274,7 +1274,7 @@ body[data-theme] input[type="checkbox"].app-checkbox:checked::after {
     transform: rotate(45deg);
 }
 
-body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
+:is(html, body)[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
     outline: 2px solid var(--theme-accent-soft);
     outline-offset: 1px;
 }
@@ -2793,7 +2793,7 @@ body[data-theme] input[type="checkbox"].app-checkbox:focus-visible {
 }
 
 /* ============ 暗色模式特殊处理 ============ */
-body[data-theme$="-dark"] .heatmap-bar {
+:is(html, body)[data-theme$="-dark"] .heatmap-bar {
     filter: brightness(0.9);
 }
 
