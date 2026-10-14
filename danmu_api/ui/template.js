@@ -73,8 +73,6 @@ export const HTML_TEMPLATE = /* html */ `
         });
     </script>
     <div class="container">
-        <div class="corner-fold"></div>
-        <button class="theme-corner-toggle" id="theme-corner-toggle" onclick="toggleColorScheme()" title="切换明暗模式" aria-label="切换明暗模式">${renderIcon('moon')}</button>
         <!-- 进度条 -->
         <div class="progress-container" id="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
@@ -105,6 +103,11 @@ export const HTML_TEMPLATE = /* html */ `
                 <button class="nav-btn" onclick="switchSection('request-records', event)">请求记录</button>
                 <button class="nav-btn" onclick="switchSection('env', event)" id="env-nav-btn">系统配置</button>
             </div>
+            <button class="theme-float-toggle" id="theme-scheme-toggle" onclick="toggleColorScheme()" title="切换明暗模式" aria-label="切换明暗模式" aria-pressed="false">
+                <span class="theme-toggle-icon theme-toggle-icon-light" aria-hidden="true">${renderIcon('sun')}</span>
+                <span class="theme-toggle-icon theme-toggle-icon-dark" aria-hidden="true">${renderIcon('moon')}</span>
+                <span class="theme-toggle-thumb" aria-hidden="true"></span>
+            </button>
         </div>
 
         <div class="content">

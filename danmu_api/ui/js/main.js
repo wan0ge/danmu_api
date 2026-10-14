@@ -685,18 +685,51 @@ init();
 function toggleColorScheme() {
     const currentScheme = document.body.dataset.colorScheme || 'light';
     const newScheme = currentScheme === 'dark' ? 'light' : 'dark';
-    document.body.dataset.colorScheme = newScheme;
-    document.documentElement.dataset.colorScheme = newScheme;
-    storeColorScheme(newScheme);
+    const btn = document.getElementById('theme-scheme-toggle');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!document.startViewTransition || !btn || reducedMotion) {
+        applyColorScheme(newScheme);
+        return;
+    }
+    // 以开关中心为圆心、到最远角的距离为半径展开圆形裁剪
+    const rect = btn.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const radius = Math.hypot(
+        Math.max(centerX, window.innerWidth - centerX),
+        Math.max(centerY, window.innerHeight - centerY),
+    );
+    const transition = document.startViewTransition(function () { applyColorScheme(newScheme); });
+    transition.ready.then(function () {
+        document.documentElement.animate(
+            {
+                clipPath: [
+                    'circle(0px at ' + centerX + 'px ' + centerY + 'px)',
+                    'circle(' + radius + 'px at ' + centerX + 'px ' + centerY + 'px)',
+                ],
+            },
+            { duration: 600, easing: 'ease-out', pseudoElement: '::view-transition-new(root)' },
+        );
+    }).catch(function () { /* 过渡被中断时无需处理，主题已应用 */ });
+}
+
+/** 应用明暗模式并保存偏好；切换期间关闭元素自身的颜色过渡，避免视图快照捕获中间态 */
+function applyColorScheme(scheme) {
+    const root = document.documentElement;
+    root.classList.add('theme-switching');
+    document.body.dataset.colorScheme = scheme;
+    root.dataset.colorScheme = scheme;
+    storeColorScheme(scheme);
     updateColorSchemeToggle();
+    requestAnimationFrame(function () { root.classList.remove('theme-switching'); });
 }
 
 function updateColorSchemeToggle() {
-    const btn = document.getElementById('theme-corner-toggle');
+    const btn = document.getElementById('theme-scheme-toggle');
     if (!btn) return;
     const scheme = document.body.dataset.colorScheme || 'light';
-    btn.innerHTML = uiIcon(scheme === 'dark' ? 'sun' : 'moon');
     btn.title = scheme === 'dark' ? '切换浅色模式' : '切换暗色模式';
+    btn.setAttribute('aria-pressed', String(scheme === 'dark'));
 }
 
 // ===== 背景弹幕词库 =====
