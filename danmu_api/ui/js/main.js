@@ -739,7 +739,7 @@ const DANMAKU_DICT = [
     // TG 管理员与活跃人员
     '鸽子', '豆佬', '@一路走来', '@摆烂 10','@𝒏𝒆𝒌𝒐', '@sleep', '@Aurora', '@🐳𝔀𝓭𝓷𝓶𝓵𝓰𝓫𝓭', '@mask','@我勒个豆儿', '@从', '@比企谷 雪乃', '@水东', '@一只歌鸽子(半夜看到我叫我滚去睡觉', '@狗剩', '@马牛逼',
     // github 贡献者
-    '@huangxd-', '@wan0ge', '@woleigedouer', '@Wo254992', '@lilixu3','@Celestials316', '@dyphire', '@piaoyizy', '@xiaoQQya', '@liixing','@goodcommunication', '@Mr-Quin', '@chason-zhao', '@DemoJameson','@rinnein', '@Lampon', '@zcw199604', '@Mashiro000', '@wade6716','@xlmc', '@mz289', '@sugarbliss', '@Backsoon0',
+    '@huangxd-', '@wan0ge', '@woleigedouer', '@Wo254992', '@lilixu3','@Celestials316', '@dyphire', '@piaoyizy', '@xiaoQQya', '@liixing','@goodcommunication', '@Mr-Quin', '@chason-zhao', '@DemoJameson','@rinnein', '@Lampon', '@zcw199604', '@Mashiro000', '@wade6716','@xlmc', '@mz289', '@sugarbliss', '@Backsoon0', '@ynsen', '@karasushin', '@desmond9527',
 ];
 
 // 背景弹幕发射间隔 0.5~1.5s
