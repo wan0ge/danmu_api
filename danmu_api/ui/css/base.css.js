@@ -41,7 +41,6 @@ html.theme-switching .header {
     transition: none;
 }
 
-
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
     min-height: 100vh;
@@ -95,7 +94,7 @@ body::before {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.10);
     cursor: pointer;
     transition: background-color 0.22s var(--app-ease-smooth), border-color 0.22s var(--app-ease-smooth),
-        box-shadow 0.22s var(--app-ease-smooth);
+        box-shadow 0.22s var(--app-ease-smooth), transform 0.22s var(--app-ease-smooth);
 }
 
 /* 触摸命中区扩大，不改变开关的视觉尺寸 */
@@ -110,6 +109,7 @@ body::before {
     position: absolute;
     left: var(--toggle-inset);
     top: var(--toggle-inset);
+    /* 6px = 两侧内边距与边框之和 */
     width: calc(var(--toggle-track-h) - 6px);
     height: calc(var(--toggle-track-h) - 6px);
     border-radius: 50%;
@@ -150,6 +150,7 @@ body::before {
 }
 
 .theme-float-toggle:hover {
+    transform: scale(1.15);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
 }
 

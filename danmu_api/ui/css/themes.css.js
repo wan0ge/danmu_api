@@ -117,6 +117,11 @@ body {
     --theme-code-bg: #111118;
     --theme-code-text: #e2e4ea;
     --theme-check-color: #000000;
+    /* 暗色下背景与浮层的明度接近，阴影加深并由边框共同体现层次 */
+    --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.07), 0 2px 8px rgba(0, 0, 0, 0.06);
+    --app-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.09), 0 8px 18px rgba(0, 0, 0, 0.08);
+    --app-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.11), 0 12px 28px rgba(0, 0, 0, 0.10);
+    --app-shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.14);
     color-scheme: dark;
 }
 
@@ -160,6 +165,11 @@ body:not([data-color-scheme="dark"]) select {
 :is(html, body)[data-color-scheme="dark"][data-theme="lavender"] {
     --app-primary: #8b9cf7; --app-primary-hover: #7a8ce6; --app-primary-soft: rgba(139,156,247,0.12);
     --theme-accent: #8b9cf7; --theme-accent-hover: #7a8ce6; --theme-accent-soft: rgba(139,156,247,0.12); --theme-header-accent: #8b9cf7;
+}
+
+/* 暗色下主容器以内外配合体现边界：外阴影加深 + 细内描边 */
+:is(html, body)[data-color-scheme="dark"] .container {
+    box-shadow: var(--app-shadow-lg), inset 0 0 0 0.5px var(--theme-border);
 }
 
 /* 暗色模式下减弱发光和光晕 */

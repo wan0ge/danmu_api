@@ -1240,6 +1240,37 @@ body.modal-open {
     font-size: 13px;
 }
 
+/* ============ 首屏占位骨架 ============ */
+/* 数据未就绪时以扫光条占位，避免内容由空到满的跳动 */
+.skeleton-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.skeleton-line {
+    height: 12px;
+    border-radius: var(--app-radius-card-sm);
+    background: linear-gradient(90deg, var(--theme-panel-bg) 25%, var(--theme-panel-strong) 37%, var(--theme-panel-bg) 63%);
+    background-size: 400% 100%;
+    animation: skeletonSweep 1.4s ease-in-out infinite;
+}
+
+.skeleton-stack .skeleton-line:nth-child(2) { width: 88%; }
+.skeleton-stack .skeleton-line:nth-child(3) { width: 72%; }
+
+@keyframes skeletonSweep {
+    from { background-position: 100% 50%; }
+    to { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-line {
+        animation: none;
+    }
+}
+
 /* 通用复选框：appearance 自绘控制勾选色；:is(html, body)[data-theme] 前缀将特异性提至 3002，压过 .form-group input 的背景/边框(2002)与尺寸/内边距(1001) */
 :is(html, body)[data-theme] input[type="checkbox"].app-checkbox {
     width: 16px;
