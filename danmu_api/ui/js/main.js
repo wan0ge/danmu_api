@@ -778,11 +778,11 @@ const DANMAKU_INTERVAL_MS = 500;
             'color:' + color,'opacity:' + opacity.toFixed(2),
             'pointer-events:none','user-select:none',
             'text-shadow:0 0 2px rgba(0,0,0,0.08), 0 0 6px currentColor',
-            'animation:danmakuScroll2 ' + duration + 's linear ' + delay + 's infinite',
+            'animation:danmakuScroll2 ' + duration + 's linear ' + delay + 's',
             'animation-fill-mode:backwards',
         ].join(';');
         container.appendChild(el);
-        setTimeout(() => { if (running) el.remove(); }, (duration + delay) * 1000 + 500);
+        el.addEventListener('animationend', () => el.remove());
     }
 
     function tick() {
