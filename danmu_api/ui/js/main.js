@@ -200,9 +200,7 @@ function loadEnvVariables() {
             // 用户未手动选择时，跟随系统深浅色变更
             window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
                 if (!getStoredColorScheme()) {
-                    document.body.dataset.colorScheme = e.matches ? 'dark' : 'light';
-                    document.documentElement.dataset.colorScheme = e.matches ? 'dark' : 'light';
-                    updateColorSchemeToggle();
+                    transitionToColorScheme(e.matches ? 'dark' : 'light', false);
                 }
             });
 
@@ -684,13 +682,26 @@ init();
 // 明暗模式切换
 function toggleColorScheme() {
     const currentScheme = document.body.dataset.colorScheme || 'light';
-    const newScheme = currentScheme === 'dark' ? 'light' : 'dark';
+    transitionToColorScheme(currentScheme === 'dark' ? 'light' : 'dark');
+}
+
+let __schemeSwitching = false;
+
+/**
+ * 以开关为圆心展开圆形裁剪，把页面过渡到指定明暗模式
+ * @param {string} scheme - 目标模式（light / dark）
+ * @param {boolean} persist - 是否保存为手动偏好；跟随系统时传入 false
+ */
+function transitionToColorScheme(scheme, persist = true) {
     const btn = document.getElementById('theme-scheme-toggle');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!document.startViewTransition || !btn || reducedMotion) {
-        applyColorScheme(newScheme);
+        applyColorScheme(scheme, persist);
         return;
     }
+    // 视图过渡无法并发：上一次未结束时忽略新请求，避免渲染进程崩溃
+    if (__schemeSwitching) return;
+    __schemeSwitching = true;
     // 以开关中心为圆心、到最远角的距离为半径展开圆形裁剪
     const rect = btn.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
@@ -699,7 +710,7 @@ function toggleColorScheme() {
         Math.max(centerX, window.innerWidth - centerX),
         Math.max(centerY, window.innerHeight - centerY),
     );
-    const transition = document.startViewTransition(function () { applyColorScheme(newScheme); });
+    const transition = document.startViewTransition(function () { applyColorScheme(scheme, persist); });
     transition.ready.then(function () {
         document.documentElement.animate(
             {
@@ -711,15 +722,16 @@ function toggleColorScheme() {
             { duration: 600, easing: 'ease-out', pseudoElement: '::view-transition-new(root)' },
         );
     }).catch(function () { /* 过渡被中断时无需处理，主题已应用 */ });
+    transition.finished.finally(function () { __schemeSwitching = false; });
 }
 
-/** 应用明暗模式并保存偏好；切换期间关闭元素自身的颜色过渡，避免视图快照捕获中间态 */
-function applyColorScheme(scheme) {
+/** 应用明暗模式；切换期间关闭元素自身的颜色过渡，避免视图快照捕获中间态。persist 为 false 时不写入手动偏好 */
+function applyColorScheme(scheme, persist = true) {
     const root = document.documentElement;
     root.classList.add('theme-switching');
     document.body.dataset.colorScheme = scheme;
     root.dataset.colorScheme = scheme;
-    storeColorScheme(scheme);
+    if (persist) storeColorScheme(scheme);
     updateColorSchemeToggle();
     requestAnimationFrame(function () { root.classList.remove('theme-switching'); });
 }
