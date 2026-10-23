@@ -685,13 +685,16 @@ function toggleColorScheme() {
     transitionToColorScheme(currentScheme === 'dark' ? 'light' : 'dark');
 }
 
-let __schemeSwitching = false;
+/** 开关做法：先放大，等放大过渡结束再截取快照，过渡结束后缩小（时长与样式表的 transform 过渡一致） */
+const SCHEME_SWITCH_SCALE_MS = 220;
 
 /**
  * 以开关为圆心展开圆形裁剪，把页面过渡到指定明暗模式
  * @param {string} scheme - 目标模式（light / dark）
  * @param {boolean} persist - 是否保存为手动偏好；跟随系统时传入 false
  */
+let isSchemeSwitching = false;
+
 function transitionToColorScheme(scheme, persist = true) {
     const btn = document.getElementById('theme-scheme-toggle');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -699,9 +702,20 @@ function transitionToColorScheme(scheme, persist = true) {
         applyColorScheme(scheme, persist);
         return;
     }
-    // 视图过渡无法并发：上一次未结束时忽略新请求，避免渲染进程崩溃
-    if (__schemeSwitching) return;
-    __schemeSwitching = true;
+    // 上一次切换未结束时忽略新请求，避免两个视图过渡几乎同时启动
+    if (isSchemeSwitching) return;
+    isSchemeSwitching = true;
+    btn.classList.add('is-scheme-switching');
+    setTimeout(function () { runSchemeTransition(scheme, persist, btn); }, SCHEME_SWITCH_SCALE_MS);
+}
+
+/**
+ * 执行圆形裁剪过渡，结束后把开关恢复原尺寸
+ * @param {string} scheme - 目标模式（light / dark）
+ * @param {boolean} persist - 是否保存为手动偏好
+ * @param {HTMLElement} btn - 明暗开关按钮
+ */
+function runSchemeTransition(scheme, persist, btn) {
     // 以开关中心为圆心、到最远角的距离为半径展开圆形裁剪
     const rect = btn.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
@@ -710,7 +724,15 @@ function transitionToColorScheme(scheme, persist = true) {
         Math.max(centerX, window.innerWidth - centerX),
         Math.max(centerY, window.innerHeight - centerY),
     );
-    const transition = document.startViewTransition(function () { applyColorScheme(scheme, persist); });
+    let transition;
+    try {
+        transition = document.startViewTransition(function () { applyColorScheme(scheme, persist); });
+    } catch (error) {
+        // 视图过渡未能启动时直接应用主题，并解除占用，避免后续切换一直被忽略
+        applyColorScheme(scheme, persist);
+        finishSchemeSwitch(btn);
+        return;
+    }
     transition.ready.then(function () {
         document.documentElement.animate(
             {
@@ -722,8 +744,19 @@ function transitionToColorScheme(scheme, persist = true) {
             { duration: 600, easing: 'ease-out', pseudoElement: '::view-transition-new(root)' },
         );
     }).catch(function () { /* 过渡被中断时无需处理，主题已应用 */ });
-    transition.finished.finally(function () { __schemeSwitching = false; });
+    transition.finished.finally(function () { finishSchemeSwitch(btn); });
 }
+
+/**
+ * 结束一次切换：恢复开关尺寸并解除占用
+ * @param {HTMLElement} btn - 明暗开关按钮
+ */
+function finishSchemeSwitch(btn) {
+    btn.classList.remove('is-scheme-switching');
+    isSchemeSwitching = false;
+}
+
+// ===== 明暗模式切换 =====
 
 /** 应用明暗模式；切换期间关闭元素自身的颜色过渡，避免视图快照捕获中间态。persist 为 false 时不写入手动偏好 */
 function applyColorScheme(scheme, persist = true) {
