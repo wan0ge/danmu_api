@@ -41,8 +41,7 @@ html.theme-switching .header {
     transition: none;
 }
 
-/* 切换期间关闭开关外壳与两端图标的过渡，使它们与页面一起瞬间到位；滑块的颜色过渡保留，
-   由样式表中的延迟控制，移动结束后才变为新的底色 */
+/* 切换期间关闭开关外壳与两端图标的过渡；滑块的颜色过渡保留，由样式表中的延迟控制移动结束后的变色 */
 html.theme-switching .theme-float-toggle,
 html.theme-switching .theme-float-toggle .theme-toggle-icon {
     transition: none;
