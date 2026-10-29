@@ -11,7 +11,7 @@ import path from 'node:path';
 import { Globals } from '../../configs/globals.js';
 import { Bangumi, Season } from '../../models/dandan-model.js';
 import { initBangumiData, clearBangumiDataCache, getBackgroundDownload, PRUNED_ITEM_FIELDS } from '../../utils/bangumi-data-util.js';
-import { getTmdbJaOriginalTitle, stripSeasonMarker, cleanSearchQuery, smartTitleReplace } from '../../utils/tmdb-util.js';
+import { getTmdbJaOriginalTitle, stripSeasonMarker, cleanSearchQuery, smartTitleReplace, getTMDBChineseTitle } from '../../utils/tmdb-util.js';
 import { mockJsonResponse, withMockFetch } from '../helpers/context.js';
 
 test('tmdb stripSeasonMarker 剥离季与分部标记', () => {
@@ -177,4 +177,163 @@ test('tmdb smartTitleReplace 分隔符模式与前缀保护模式', () => {
   const prefixed = [{ title: '第2期 無職転生' }, { title: 'この素晴らしい世界に祝福を!' }];
   smartTitleReplace(prefixed, '无职转生');
   assert.strictEqual(prefixed[0]._displayTitle, '第2期 无职转生', '前缀为季号时保留前缀并替换其后内容');
+});
+// 构造 getTMDBChineseTitle 的 TMDB 搜索与别名 mock，返回解析结果与别名请求次数
+async function runTitleToChinese({ query, season = 1, searchResults, altId, altData = { results: [] } }) {
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  const savedTmdbApiKey = Globals.envs.tmdbApiKey;
+  Globals.envs.useBangumiData = false;
+  Globals.envs.tmdbApiKey = 'title-to-chinese-probe';
+  let altRequestCount = 0;
+  try {
+    const result = await withMockFetch(async (url) => {
+      const target = String(url);
+      if (target.includes('/search/')) return mockJsonResponse({ results: searchResults }, '');
+      if (target.includes(`/${altId}/alternative_titles`)) {
+        altRequestCount++;
+        return mockJsonResponse(altData, '');
+      }
+      throw new Error(`未预期的请求: ${target}`);
+    }, () => getTMDBChineseTitle(query, season, 1));
+    return { result, altRequestCount };
+  } finally {
+    Globals.envs.useBangumiData = savedUseBangumiData;
+    Globals.envs.tmdbApiKey = savedTmdbApiKey;
+  }
+}
+
+test('tmdb getTMDBChineseTitle 按原名匹配并从别名取中文名', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  // Wednesday：正确条目 119051 的本地标题为英文，中文名只在别名（CN/TW 星期三）
+  const wednesday = await runTitleToChinese({
+    query: 'Wednesday',
+    searchResults: [
+      { id: 11303, name: '周三剧场', original_name: 'The Wednesday Play' },
+      { id: 119051, name: 'Wednesday', original_name: 'Wednesday' },
+    ],
+    altId: 119051,
+    altData: { results: [
+      { iso_3166_1: 'CN', title: '星期三' },
+      { iso_3166_1: 'TW', title: '星期三' },
+      { iso_3166_1: 'US', title: 'Wednesday Addams' },
+    ] },
+  });
+  assert.strictEqual(wednesday.result, '星期三', '按 original_name 选中正确条目并取 CN 中文名');
+
+  // RIPLEY：正确条目 94028 的本地标题为英文，中文名只在别名（CN 雷普利）
+  const ripley = await runTitleToChinese({
+    query: 'RIPLEY',
+    searchResults: [
+      { id: 94028, name: 'RIPLEY', original_name: 'RIPLEY' },
+      { id: 297659, name: '亲密的雷普利', original_name: '친밀한 리플리' },
+    ],
+    altId: 94028,
+    altData: { results: [
+      { iso_3166_1: 'CN', title: '雷普利' },
+      { iso_3166_1: 'US', title: 'Ripley' },
+    ] },
+  });
+  assert.strictEqual(ripley.result, '雷普利', '按 original_name 选中正确条目并取 CN 中文名');
+});
+
+test('tmdb getTMDBChineseTitle 电影按 original_title 匹配并从别名取中文名', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const { result } = await runTitleToChinese({
+    query: 'The Gorge',
+    season: null,
+    searchResults: [
+      { id: 1, title: '错误电影', original_title: 'WrongMovie' },
+      { id: 2, title: 'The Gorge', original_title: 'The Gorge' },
+    ],
+    altId: 2,
+    altData: { titles: [{ iso_3166_1: 'CN', title: '峡谷' }] },
+  });
+  assert.strictEqual(result, '峡谷', '电影按 original_title 选中正确条目并从 titles 别名取中文名');
+});
+
+test('tmdb getTMDBChineseTitle 本地标题为中文时不请求别名', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const { result, altRequestCount } = await runTitleToChinese({
+    query: 'SomeForeign',
+    searchResults: [{ id: 5, name: '某中文名', original_name: 'SomeForeign' }],
+    altId: 5,
+    altData: { results: [{ iso_3166_1: 'CN', title: '其它中文名' }] },
+  });
+  assert.strictEqual(result, '某中文名', '本地标题为中文时直接使用');
+  assert.strictEqual(altRequestCount, 0, '本地标题为中文时不请求别名');
+});
+
+test('tmdb getTMDBChineseTitle 无原名命中时回退首个含中文名结果', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const { result, altRequestCount } = await runTitleToChinese({
+    query: 'UnknownQuery',
+    searchResults: [
+      { id: 1, name: 'English Only', original_name: 'SomethingElse' },
+      { id: 2, name: '中文候选', original_name: 'AnotherForeign' },
+    ],
+    altId: 1,
+    altData: { results: [] },
+  });
+  assert.strictEqual(result, '中文候选', '无原名命中时沿用首个含中文名的结果');
+  assert.strictEqual(altRequestCount, 0, '回退分支不请求别名');
+});
+
+test('tmdb getTMDBChineseTitle 原名命中但别名无中文时回退本地标题', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const { result, altRequestCount } = await runTitleToChinese({
+    query: 'Ripley2',
+    searchResults: [{ id: 9, name: 'Ripley2', original_name: 'Ripley2' }],
+    altId: 9,
+    altData: { results: [{ iso_3166_1: 'US', title: 'Ripley2' }] },
+  });
+  assert.strictEqual(result, 'Ripley2', '别名无中文时回退本地标题');
+  assert.strictEqual(altRequestCount, 1, '原名命中且本地标题非中文时请求 1 次别名');
+});
+test('tmdb getTMDBChineseTitle 别名按地区优先级取中文名', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const searchResults = [{ id: 119051, name: 'Wednesday', original_name: 'Wednesday' }];
+  const pick = async (altResults) => (await runTitleToChinese({
+    query: 'Wednesday', searchResults, altId: 119051, altData: { results: altResults },
+  })).result;
+
+  assert.strictEqual(await pick([
+    { iso_3166_1: 'US', title: 'Wednesday Addams' },
+    { iso_3166_1: 'SG', title: '星期三SG' },
+    { iso_3166_1: 'HK', title: '星期三HK' },
+    { iso_3166_1: 'TW', title: '星期三TW' },
+    { iso_3166_1: 'CN', title: '星期三CN' },
+  ]), '星期三CN', 'CN 优先于 TW/HK/SG');
+
+  assert.strictEqual(await pick([
+    { iso_3166_1: 'SG', title: '星期三SG' },
+    { iso_3166_1: 'HK', title: '星期三HK' },
+    { iso_3166_1: 'TW', title: '星期三TW' },
+  ]), '星期三TW', '无 CN 时 TW 优先于 HK/SG');
+
+  assert.strictEqual(await pick([
+    { iso_3166_1: 'US', title: 'Wednesday Addams' },
+    { iso_3166_1: 'SG', title: '星期三SG' },
+  ]), '星期三SG', '无 CN/TW/HK 时取 SG');
+
+  assert.strictEqual(await pick([
+    { iso_3166_1: 'US', title: '星期三US' },
+  ]), '星期三US', '无地区匹配时取任意中文别名');
+});
+
+test('tmdb getTMDBChineseTitle 别名请求仅针对选中结果', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const { result, altRequestCount } = await runTitleToChinese({
+    query: 'Wednesday',
+    searchResults: [
+      { id: 1, name: '周三剧场', original_name: 'The Wednesday Play' },
+      { id: 2, name: 'The Wednesday Thriller', original_name: 'The Wednesday Thriller' },
+      { id: 3, name: 'My Wednesday', original_name: 'My Wednesday' },
+      { id: 119051, name: 'Wednesday', original_name: 'Wednesday' },
+      { id: 5, name: 'Wednesday 9:30', original_name: 'Wednesday 9:30 (8:30 Central)' },
+    ],
+    altId: 119051,
+    altData: { results: [{ iso_3166_1: 'CN', title: '星期三' }] },
+  });
+  assert.strictEqual(result, '星期三', '选中唯一定名匹配的正确条目');
+  assert.strictEqual(altRequestCount, 1, '5 条搜索结果中仅对选中结果发起 1 次别名请求');
 });
