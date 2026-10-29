@@ -11,7 +11,7 @@ import path from 'node:path';
 import { Globals } from '../../configs/globals.js';
 import { Bangumi, Season } from '../../models/dandan-model.js';
 import { initBangumiData, clearBangumiDataCache, getBackgroundDownload, PRUNED_ITEM_FIELDS } from '../../utils/bangumi-data-util.js';
-import { getTmdbJaOriginalTitle, stripSeasonMarker, cleanSearchQuery, smartTitleReplace, getTMDBChineseTitle } from '../../utils/tmdb-util.js';
+import { getTmdbJaOriginalTitle, stripSeasonMarker, cleanSearchQuery, smartTitleReplace, getTMDBChineseTitle, buildTmdbSeasonBoundaries, getTmdbSeasonBoundaries, searchTmdbTitles } from '../../utils/tmdb-util.js';
 import { mockJsonResponse, withMockFetch } from '../helpers/context.js';
 
 test('tmdb stripSeasonMarker 剥离季与分部标记', () => {
@@ -336,4 +336,167 @@ test('tmdb getTMDBChineseTitle 别名请求仅针对选中结果', async () => {
   });
   assert.strictEqual(result, '星期三', '选中唯一定名匹配的正确条目');
   assert.strictEqual(altRequestCount, 1, '5 条搜索结果中仅对选中结果发起 1 次别名请求');
+});
+test('tmdb buildTmdbSeasonBoundaries 按各季起始集推导跨季边界', () => {
+  // 同一 tv/{id} 下三季，起始集 1/13/25：按起始集排序并赋 order 1..3
+  const bounds = buildTmdbSeasonBoundaries([
+    { matchedSiteKey: 'tmdb', siteId: 'tv/123/season/3/episode/25', title: 'S3' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/123/season/1/episode/1', title: 'S1' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/123/season/2/episode/13', title: 'S2' },
+  ]);
+  assert.deepStrictEqual(bounds, [
+    { order: 1, startEpisode: 1, title: 'S1', tmdbId: 'tv/123' },
+    { order: 2, startEpisode: 13, title: 'S2', tmdbId: 'tv/123' },
+    { order: 3, startEpisode: 25, title: 'S3', tmdbId: 'tv/123' },
+  ], '按起始集排序并顺序赋 order');
+
+  // 无 episode 的 siteId 起始集视为 1
+  assert.deepStrictEqual(buildTmdbSeasonBoundaries([
+    { matchedSiteKey: 'tmdb', siteId: 'tv/9', title: 'Base' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/9/season/2/episode/13', title: 'S2' },
+  ]), [
+    { order: 1, startEpisode: 1, title: 'Base', tmdbId: 'tv/9' },
+    { order: 2, startEpisode: 13, title: 'S2', tmdbId: 'tv/9' },
+  ], '缺 episode 时起始集为 1');
+
+  // 仅单季（同一 tv id 只有 1 条）→ null
+  assert.strictEqual(buildTmdbSeasonBoundaries([
+    { matchedSiteKey: 'tmdb', siteId: 'tv/1/season/1/episode/1', title: 'S1' },
+  ]), null, '单季不构成跨季边界');
+
+  // 无 tmdb 站点或非 tv siteId → null
+  assert.strictEqual(buildTmdbSeasonBoundaries([
+    { matchedSiteKey: 'bangumi', siteId: 'tv/1' },
+    { matchedSiteKey: 'tmdb', siteId: 'movie/2' },
+  ]), null, '非 tmdb 站点与非 tv siteId 均被跳过');
+
+  assert.strictEqual(buildTmdbSeasonBoundaries([]), null, '空结果返回 null');
+
+  // 多个 tv id 时取条目最多的一组
+  const most = buildTmdbSeasonBoundaries([
+    { matchedSiteKey: 'tmdb', siteId: 'tv/1/season/1/episode/1', title: 'A1' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/1/season/2/episode/6', title: 'A2' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/2/season/1/episode/1', title: 'B1' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/2/season/2/episode/6', title: 'B2' },
+    { matchedSiteKey: 'tmdb', siteId: 'tv/2/season/3/episode/11', title: 'B3' },
+  ]);
+  assert.deepStrictEqual(most.map(b => b.tmdbId), ['tv/2', 'tv/2', 'tv/2'], '取条目最多的 tv id');
+});
+
+test('tmdb getTmdbSeasonBoundaries 受 Bangumi Data 开关与检索结果控制', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  try {
+    // 关闭 Bangumi Data 时直接返回 null，且不调用检索函数
+    Globals.envs.useBangumiData = false;
+    let called = 0;
+    const stub = async () => { called++; return []; };
+    assert.strictEqual(await getTmdbSeasonBoundaries('某番', stub), null, '关闭时返回 null');
+    assert.strictEqual(called, 0, '关闭时不调用检索函数');
+
+    // 开启时用检索结果推导跨季边界
+    Globals.envs.useBangumiData = true;
+    const bounds = await getTmdbSeasonBoundaries('某番', async () => ([
+      { matchedSiteKey: 'tmdb', siteId: 'tv/7/season/1/episode/1', title: 'S1' },
+      { matchedSiteKey: 'tmdb', siteId: 'tv/7/season/2/episode/13', title: 'S2' },
+    ]));
+    assert.deepStrictEqual(bounds.map(b => b.startEpisode), [1, 13], '由检索结果推导边界');
+
+    // 检索函数抛错时回退 null
+    const failed = await getTmdbSeasonBoundaries('某番', async () => { throw new Error('boom'); });
+    assert.strictEqual(failed, null, '检索异常时回退 null');
+  } finally {
+    Globals.envs.useBangumiData = savedUseBangumiData;
+  }
+});
+
+test('tmdb searchTmdbTitles 多页合并与不足一页即停', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedTmdbApiKey = Globals.envs.tmdbApiKey;
+  Globals.envs.tmdbApiKey = 'pagination-probe';
+  try {
+    const make = (count, prefix) => Array.from({ length: count }, (_, i) => ({ id: `${prefix}${i}` }));
+    let calls = 0;
+    const { data } = await withMockFetch(async (url) => {
+      const target = String(url);
+      const pageMatch = target.match(/[?&]page=(\d+)/);
+      calls++;
+      if (pageMatch && pageMatch[1] === '2') return mockJsonResponse({ results: make(5, 'b') }, '');
+      return mockJsonResponse({ results: make(20, 'a') }, '');
+    }, () => searchTmdbTitles('某番', 'multi'));
+    assert.strictEqual(calls, 2, '首页满 20 条继续请求下一页，次页不足 20 条即停');
+    assert.strictEqual(data.results.length, 25, '合并两页结果');
+  } finally {
+    Globals.envs.tmdbApiKey = savedTmdbApiKey;
+  }
+});
+test('tmdb getTmdbJaOriginalTitle 过滤非动画非日语结果', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  const savedTmdbApiKey = Globals.envs.tmdbApiKey;
+  const json = (payload) => mockJsonResponse(payload, '');
+  try {
+    Globals.envs.useBangumiData = false;
+    Globals.envs.tmdbApiKey = 'ja-filter-probe';
+
+    // 全部为非动画且非日语：数据清洗后为空，返回 null 且不请求详情
+    let detailCalls = 0;
+    const onlyNonTarget = await withMockFetch(async (url) => {
+      const target = String(url);
+      if (target.includes('/search/multi')) return json({ results: [
+        { id: 1, media_type: 'tv', name: 'Some Drama', original_name: 'Some Drama', genre_ids: [18], original_language: 'en' },
+      ] });
+      if (/\/3\/tv\/\d+/.test(target)) { detailCalls++; return json({ id: 1, name: 'Some Drama' }); }
+      throw new Error(`未预期的请求: ${target}`);
+    }, () => getTmdbJaOriginalTitle('Some Drama', null, 'Test'));
+    assert.strictEqual(onlyNonTarget, null, '全部非动画非日语时返回 null');
+    assert.strictEqual(detailCalls, 0, '清洗为空时不请求详情');
+
+    // 混合：非动画结果被过滤，仅动画结果参与匹配
+    const mixed = await withMockFetch(async (url) => {
+      const target = String(url);
+      if (target.includes('/search/multi')) return json({ results: [
+        { id: 1, media_type: 'tv', name: 'Alpha', original_name: 'Alpha', genre_ids: [18], original_language: 'en' },
+        { id: 2, media_type: 'tv', name: 'Alpha', original_name: 'Alpha', genre_ids: [16], original_language: 'ja' },
+      ] });
+      if (/\/3\/tv\/2\b/.test(target)) return json({ id: 2, original_name: 'アルファ', genres: [{ id: 16 }], original_language: 'ja' });
+      throw new Error(`未预期的请求: ${target}`);
+    }, () => getTmdbJaOriginalTitle('Alpha', null, 'Test'));
+    assert.ok(mixed, '存在动画结果时返回匹配');
+    assert.strictEqual(mixed.title, 'アルファ', '同名非动画结果被过滤后取自动画结果（id=2）');
+    assert.strictEqual(mixed.cnAlias, 'Alpha', '动画结果名与原检索词一致');
+  } finally {
+    Globals.envs.useBangumiData = savedUseBangumiData;
+    Globals.envs.tmdbApiKey = savedTmdbApiKey;
+  }
+});
+test('tmdb getTmdbJaOriginalTitle 别名精确命中检索词优先于中文别名', async () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const savedUseBangumiData = Globals.envs.useBangumiData;
+  const savedTmdbApiKey = Globals.envs.tmdbApiKey;
+  const json = (payload) => mockJsonResponse(payload, '');
+  try {
+    Globals.envs.useBangumiData = false;
+    Globals.envs.tmdbApiKey = 'ja-alias-exact-probe';
+
+    const result = await withMockFetch(async (url) => {
+      const target = String(url);
+      if (target.includes('/alternative_titles')) return json({ results: [
+        { iso_3166_1: 'US', title: 'Shingeki' },
+        { iso_3166_1: 'CN', title: '进击的巨人' },
+      ] });
+      if (target.includes('/search/multi')) return json({ results: [
+        { id: 11, media_type: 'tv', name: 'Shingeki no Kyojin', original_name: '進撃の巨人', genre_ids: [16], original_language: 'ja' },
+      ] });
+      if (/\/3\/tv\/11\b/.test(target)) return json({ id: 11, original_name: '進撃の巨人', genres: [{ id: 16 }], original_language: 'ja' });
+      throw new Error(`未预期的请求: ${target}`);
+    }, () => getTmdbJaOriginalTitle('Shingeki', null, 'Test'));
+
+    assert.ok(result, '存在动画结果时返回匹配');
+    assert.strictEqual(result.cnAlias, 'Shingeki', '别名精确命中检索词时优先于地区中文别名');
+    assert.strictEqual(result.title, '進撃の巨人', '原名来自详情');
+  } finally {
+    Globals.envs.useBangumiData = savedUseBangumiData;
+    Globals.envs.tmdbApiKey = savedTmdbApiKey;
+  }
 });
