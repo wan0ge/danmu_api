@@ -150,7 +150,7 @@ function extractChineseTitleFromAlternatives(altData, queryTitle = "") {
   const exactMatch = cleanQuery && titles.find(t => getAlternativeText(t).toLowerCase().trim() === cleanQuery);
   const chineseTitle = exactMatch ? getAlternativeText(exactMatch) : pickChineseTitleFromAlternatives(altData);
   if (chineseTitle) {
-    log("info", `[system] [tmdb] 按优先级策略成功提取最佳中文别名: ${chineseTitle}`);
+    log("info", `[system] [tmdb] 按优先级策略成功提取最佳别名: ${chineseTitle}`);
     return chineseTitle;
   }
   return null;
@@ -192,7 +192,7 @@ async function getChineseTitleForResult(result, signal, queryTitle = "") {
     const chineseTitle = extractChineseTitleFromAlternatives(altResp, queryTitle);
 
     if (chineseTitle) {
-      log("info", `[system] [tmdb] 将使用中文别名进行相似匹配: ${chineseTitle}`);
+      log("info", `[system] [tmdb] 将使用别名进行相似匹配: ${chineseTitle}`);
       return chineseTitle;
     } else {
       log("info", `[system] [tmdb] 未找到中文别名，使用原标题: ${resultTitle}`);
