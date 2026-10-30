@@ -3256,6 +3256,8 @@ async function processMergeTask(params) {
             `from ${currentPrimarySource}${DISPLAY_CONNECTOR}${joinedSources}`
         );
         derivedAnime.source = currentPrimarySource;
+        // 合并后总集数以最终 links 为准，与详情页展示的集数保持一致
+        derivedAnime.episodeCount = derivedAnime.links.length;
         return derivedAnime;
     }
     return null;

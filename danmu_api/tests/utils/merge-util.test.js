@@ -1065,3 +1065,30 @@ test('merge applyMergeLogic 映射表动态注入源受权限沙箱约束', asyn
     Globals.init({ LOG_LEVEL: 'error' });
   }
 });
+
+test('merge applyMergeLogic 合并后按最终 links 重算总集数', async () => {
+  Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'dandan&animeko' });
+  const buildAnime = (animeId, animeTitle, source, count) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases: [],
+    source,
+    type: 'TV动画',
+    typeDescription: 'TV动画',
+    startDate: '2026-01-01T00:00:00.000Z',
+    links: Array.from({ length: count }, (_, i) => ({ title: `第${i + 1}集`, url: `${source}:${animeId}:${i}:第${i + 1}集` })),
+    episodeCount: count,
+  });
+
+  // 主源 2 集、副源 5 集、同标题同年：合并后 links 覆盖副源全部集
+  const primary   = buildAnime(1, '重算集数测试番剧(2026)【TV动画】from dandan', 'dandan', 2);
+  const secondary = buildAnime(2, '重算集数测试番剧(2026)【TV动画】from animeko', 'animeko', 5);
+  Globals.animes = [primary, secondary];
+  await applyMergeLogic([primary, secondary]);
+
+  const merged = Globals.animes.find((a) => a.animeTitle.startsWith('重算集数测试番剧') && a.animeTitle.includes('from dandan&animeko'));
+  assert.ok(merged, '应产生合并条目');
+  assert.ok(merged.links.length > 2, '合并后 links 多于主源');
+  assert.strictEqual(merged.episodeCount, merged.links.length, '总集数以最终 links 为准');
+});
