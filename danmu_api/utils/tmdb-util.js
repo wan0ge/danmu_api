@@ -650,14 +650,14 @@ export async function getTMDBChineseTitle(title, season = null, episode = null) 
 
     // 如果有中文标题则返回，否则返回原标题
     if (chineseTitle) {
-      log("info", `原标题: ${title} -> 中文标题: ${chineseTitle}`);
+      log("info", `[system] [tmdb] 原标题: ${title} -> 中文标题: ${chineseTitle}`);
       return chineseTitle;
     } else {
       return title;
     }
 
   } catch (error) {
-    log("error", '查询 TMDB 时出错:', error);
+    log("error", '[system] [tmdb] 查询 TMDB 时出错:', error);
     return title;
   }
 }
