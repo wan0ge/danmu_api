@@ -860,7 +860,7 @@ async function searchAnimeBody(url, preferAnimeId = null, preferSource = null, d
       // 首先检查剧名是否包含过滤关键词
       const animeTitle = anime.animeTitle || '';
       if (globals.animeTitleFilter && globals.animeTitleFilter.test(animeTitle)) {
-        log("info", `[searchAnime] Anime ${anime.animeId} filtered by name: ${animeTitle}`);
+        log("info", `[system] [searchAnime] Anime ${anime.animeId} filtered by name: ${animeTitle}`);
         continue; // 跳过该动漫
       }
 
@@ -881,7 +881,7 @@ async function searchAnimeBody(url, preferAnimeId = null, preferSource = null, d
           return !globals.episodeTitleFilter.test(episode.episodeTitle);
         });
 
-        log("info", `[searchAnime] Anime ${anime.animeId} filtered episodes: ${episodesList.length}/${animeData.links.length}`);
+        log("info", `[system] [searchAnime] Anime ${anime.animeId} filtered episodes: ${episodesList.length}/${animeData.links.length}`);
 
         // 只有当过滤后还有有效剧集时才保留该动漫
         if (episodesList.length > 0) {
@@ -1160,7 +1160,7 @@ export function getBangumiDataForMatch(anime, detailStore = null) {
     resolveAnimeByIdFromDetailStore(anime?.animeId, detailStore, anime?.source);
 
   if (!detailAnime) {
-    log("warn", `[matchAnime] Missing request detail snapshot for anime ${anime?.animeId ?? anime?.bangumiId}`);
+    log("warn", `[system] [matchAnime] Missing request detail snapshot for anime ${anime?.animeId ?? anime?.bangumiId}`);
     return null;
   }
 
@@ -2356,6 +2356,8 @@ async function fetchMergedComments(url, animeTitle, commentId) {
     return async () => {
     const sourceName = meta.logicalSource;
     const sourceLabel = meta.sourceLabel || meta.logicalSource;
+    // 日志标签取源的日志规范名，与请求作用域标签一致
+    const sourceLogName = getLogNameByKey(sourceName);
     const realId = meta.realId;
 
     if (!sourceName || !realId) return [];
@@ -2375,7 +2377,7 @@ async function fetchMergedComments(url, animeTitle, commentId) {
     }
 
     // 定义请求任务
-    const fetchTask = sourceLogContext.run(getLogNameByKey(sourceName), async () => {
+    const fetchTask = sourceLogContext.run(sourceLogName, async () => {
         const sourceInstance = getSourceByKey(sourceName);
 
         if (sourceInstance) {
@@ -2388,17 +2390,17 @@ async function fetchMergedComments(url, animeTitle, commentId) {
             // 获取原始数据 -> 格式化
             const raw = await sourceInstance.getEpisodeDanmu(resolvedId, parts);
             let formatted = sourceInstance.formatComments(raw);
-            log("info", `[${sourceLabel}] 获取弹幕 ${formatted.length} 条`);
+            log("info", `[${sourceLogName}] 获取弹幕 ${formatted.length} 条`);
             
             // 应用手动偏移值
             if (meta.manualOffset && formatted && Array.isArray(formatted)) {
               if (meta.manualOffsetPercent) {
                 const maxTime = Math.max(...formatted.map(d => parseFloat(String(d.p).split(',')[0]) || 0), 0);
                 formatted = applyOffset(formatted, meta.manualOffset, { usePercent: true, videoDuration: maxTime || 1 });
-                log("info", `[${sourceLabel}] 应用百分比偏移 ${meta.manualOffset}s (时长=${maxTime}s)`);
+                log("info", `[${sourceLogName}] 应用百分比偏移 ${meta.manualOffset}s (时长=${maxTime}s)`);
               } else {
                 formatted = applyOffset(formatted, meta.manualOffset);
-                log("info", `[${sourceLabel}] 应用手动偏移 ${meta.manualOffset}s`);
+                log("info", `[${sourceLogName}] 应用手动偏移 ${meta.manualOffset}s`);
               }
             }
             

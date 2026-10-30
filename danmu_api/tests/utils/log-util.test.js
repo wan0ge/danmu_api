@@ -1,9 +1,13 @@
-// 日志工具：日志级别过滤、参数拼接与脱敏、logBuffer 裁剪、上海时区时间戳、JSON 格式化
+// 日志工具：日志级别过滤、参数拼接与脱敏、logBuffer 裁剪、上海时区时间戳、JSON 格式化、日志首标签归属分类
 
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { log, formatLogMessage } from '../../utils/log-util.js';
 import { globals } from '../../configs/globals.js';
+import { logviewJsContent } from '../../ui/js/logview.js';
 
 // 临时接管 console 以收集真实输出，结束后恢复，避免污染测试输出
 function captureConsole(levels, fn) {
@@ -190,4 +194,46 @@ test('formatLogMessage 对非 JSON 与非法/边缘入参的行为', () => {
     // JSON.parse 的强制转换：null → "null" → null；undefined 解析失败，原样返回
     assert.equal(formatLogMessage(null), 'null');
     assert.equal(formatLogMessage(undefined), undefined);
+});
+
+// 日志标签分类测试：复用 ui/js/logview.js 的分类函数与分类表，分类增长时无需改动本测试
+const getLogCategory = new Function(
+    `${logviewJsContent.match(/function getLogCategory\(message\) \{[\s\S]*?\n\}/)[0]}\nreturn getLogCategory;`
+)();
+const LOG_CATEGORIES = new Set(
+    [...logviewJsContent.match(/const tagGroupOrder = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map(m => m[1])
+);
+
+function walkSourceFiles(dir, out = []) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            if (entry.name === 'tests' || entry.name === 'node_modules') continue;
+            walkSourceFiles(full, out);
+        } else if (entry.name.endsWith('.js') && !entry.name.endsWith('.test.js')) {
+            out.push(full);
+        }
+    }
+    return out;
+}
+
+test('log 标签：生产日志首标签均落在 logview 归属分类内', () => {
+    const srcRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const aliens = [];
+    for (const file of walkSourceFiles(srcRoot)) {
+        const source = fs.readFileSync(file, 'utf8');
+        for (const call of source.matchAll(/\blog\(\s*['"](?:info|warn|error|debug|success)['"]\s*,\s*/g)) {
+            const rest = source.slice(call.index + call[0].length).replace(/^[`'"]/, '');
+            const prefix = rest.match(/^(\s*(?:\[[^\]]*\])+)/);
+            if (!prefix) continue;
+            const firstTag = prefix[1].match(/\[([^\]]*)\]/)[1].trim();
+            // 由模板变量或字符串拼接构造的标签在运行时才确定，静态扫描跳过
+            if (/\$\{|['`+]/.test(firstTag)) continue;
+            const category = getLogCategory(prefix[1]);
+            if (category !== '_inherit_' && !LOG_CATEGORIES.has(category)) {
+                aliens.push(`${path.relative(srcRoot, file)}: [${firstTag}] -> ${category}`);
+            }
+        }
+    }
+    assert.deepEqual(aliens, [], `存在未归属的日志首标签：${aliens.join(', ')}`);
 });
