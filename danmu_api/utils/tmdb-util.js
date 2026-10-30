@@ -629,7 +629,7 @@ export async function getTMDBChineseTitle(title, season = null, episode = null) 
     const titleKey = value => normalizeTitleForMatch(value).toLowerCase();
     const queryKey = titleKey(title);
 
-    // 原标题或本地标题与查询词一致的作品才是同一部，避免同名无关条目抢先命中
+    // 原标题或本地化标题与查询词一致的作品才是同一部，避免同名无关条目抢先命中
     const exactMatches = results.filter(result =>
       titleKey(getOriginal(result)) === queryKey || titleKey(getLocalized(result)) === queryKey
     );
@@ -641,7 +641,7 @@ export async function getTMDBChineseTitle(title, season = null, episode = null) 
       return localized && !isNonChinese(localized);
     }) || candidatePool[0];
 
-    // 本地标题为中文时直接使用，否则从别名中提取中文名
+    // 本地化标题为中文时直接使用，否则从别名中提取中文名
     let chineseTitle = getLocalized(selectedResult);
     if (exactMatches.length > 0 && (!chineseTitle || isNonChinese(chineseTitle))) {
       const alternatives = await getTmdbAlternativeTitles(mediaType, selectedResult.id);

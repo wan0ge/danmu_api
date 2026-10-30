@@ -204,7 +204,7 @@ async function runTitleToChinese({ query, season = 1, searchResults, altId, altD
 
 test('tmdb getTMDBChineseTitle 按原名匹配并从别名取中文名', async () => {
   Globals.init({ LOG_LEVEL: 'error' });
-  // Wednesday：正确条目 119051 的本地标题为英文，中文名只在别名（CN/TW 星期三）
+  // Wednesday：正确条目 119051 的本地化标题为英文，中文名只在别名（CN/TW 星期三）
   const wednesday = await runTitleToChinese({
     query: 'Wednesday',
     searchResults: [
@@ -220,7 +220,7 @@ test('tmdb getTMDBChineseTitle 按原名匹配并从别名取中文名', async (
   });
   assert.strictEqual(wednesday.result, '星期三', '按 original_name 选中正确条目并取 CN 中文名');
 
-  // RIPLEY：正确条目 94028 的本地标题为英文，中文名只在别名（CN 雷普利）
+  // RIPLEY：正确条目 94028 的本地化标题为英文，中文名只在别名（CN 雷普利）
   const ripley = await runTitleToChinese({
     query: 'RIPLEY',
     searchResults: [
@@ -251,7 +251,7 @@ test('tmdb getTMDBChineseTitle 电影按 original_title 匹配并从别名取中
   assert.strictEqual(result, '峡谷', '电影按 original_title 选中正确条目并从 titles 别名取中文名');
 });
 
-test('tmdb getTMDBChineseTitle 本地标题为中文时不请求别名', async () => {
+test('tmdb getTMDBChineseTitle 本地化标题为中文时不请求别名', async () => {
   Globals.init({ LOG_LEVEL: 'error' });
   const { result, altRequestCount } = await runTitleToChinese({
     query: 'SomeForeign',
@@ -259,8 +259,8 @@ test('tmdb getTMDBChineseTitle 本地标题为中文时不请求别名', async (
     altId: 5,
     altData: { results: [{ iso_3166_1: 'CN', title: '其它中文名' }] },
   });
-  assert.strictEqual(result, '某中文名', '本地标题为中文时直接使用');
-  assert.strictEqual(altRequestCount, 0, '本地标题为中文时不请求别名');
+  assert.strictEqual(result, '某中文名', '本地化标题为中文时直接使用');
+  assert.strictEqual(altRequestCount, 0, '本地化标题为中文时不请求别名');
 });
 
 test('tmdb getTMDBChineseTitle 无原名命中时回退首个含中文名结果', async () => {
@@ -278,7 +278,7 @@ test('tmdb getTMDBChineseTitle 无原名命中时回退首个含中文名结果'
   assert.strictEqual(altRequestCount, 0, '回退分支不请求别名');
 });
 
-test('tmdb getTMDBChineseTitle 原名命中但别名无中文时回退本地标题', async () => {
+test('tmdb getTMDBChineseTitle 原名命中但别名无中文时回退本地化标题', async () => {
   Globals.init({ LOG_LEVEL: 'error' });
   const { result, altRequestCount } = await runTitleToChinese({
     query: 'Ripley2',
@@ -286,8 +286,8 @@ test('tmdb getTMDBChineseTitle 原名命中但别名无中文时回退本地标�
     altId: 9,
     altData: { results: [{ iso_3166_1: 'US', title: 'Ripley2' }] },
   });
-  assert.strictEqual(result, 'Ripley2', '别名无中文时回退本地标题');
-  assert.strictEqual(altRequestCount, 1, '原名命中且本地标题非中文时请求 1 次别名');
+  assert.strictEqual(result, 'Ripley2', '别名无中文时回退本地化标题');
+  assert.strictEqual(altRequestCount, 1, '原名命中且本地化标题非中文时请求 1 次别名');
 });
 test('tmdb getTMDBChineseTitle 别名按地区优先级取中文名', async () => {
   Globals.init({ LOG_LEVEL: 'error' });
