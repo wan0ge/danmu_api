@@ -220,7 +220,7 @@ export async function getTmdbJaOriginalTitle(title, signal = null, sourceLabel =
   if (globals.useBangumiData) {
     const localMatches = await searchBangumiData(cleanTitle, ['tmdb', 'bangumi', 'anidb']);
     if (localMatches && localMatches.length > 0) {
-      // 按精确度排序：将正好匹配检索词的条目排在前面，避免子串混淆（如 "机动战士高达00" 匹配到 "机动战士高达0079"）
+      // searchBangumiData 已按归一化标题排序；此处再按字面相等优先，把与检索词完全一致的条目前置，避免子串混淆（如 "机动战士高达00" 匹配到 "机动战士高达0079"）
       if (localMatches.length > 1) {
         localMatches.sort((a, b) => {
           const aExact = a.titles.some(t => t === cleanTitle);
