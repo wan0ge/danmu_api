@@ -295,6 +295,41 @@ test('merge findSecondaryMatches 同一配音版本只并入一条', () => {
     ],
   }).length, 1, '同一作品的同语言结果只保留最高分一条');
 });
+test('merge findSecondaryMatches 剧场版阻断按标题与别名全集比对', () => {
+  Globals.init({ LOG_LEVEL: 'error' });
+  const buildAnime = (animeId, animeTitle, source, typeDescription, startDate, count, aliases = []) => ({
+    animeId,
+    bangumiId: String(animeId),
+    animeTitle,
+    aliases,
+    source,
+    type: typeDescription,
+    typeDescription,
+    startDate,
+    links: Array.from({ length: count }, (_, i) => ({ title: `第${i + 1}集` })),
+    episodeCount: count,
+  });
+
+  // 电影（bilibili）与动画某季（animeko）因「别名」命中完全一致而得到 1.0 相似度，
+  // 剧场版阻断须在「标题 + 别名」全集上判定，才能拦住这类跨类型误合并
+  const movie  = buildAnime(1, '银河护卫队(2014)【电影】from bilibili', 'bilibili', '电影', '2014-08-01T00:00:00.000Z', 2);
+  const series = buildAnime(2, '银河守护者 第一季(2015)【TV动画】from animeko', 'animeko', 'TV动画', '2015-09-26T00:00:00.000Z', 26, ['银河护卫队']);
+  assert.deepStrictEqual(
+    findSecondaryMatches(movie, [series], new Set(), ['animeko']).map((a) => a.animeId),
+    [],
+    '电影与共享别名的动画季不应合并',
+  );
+
+  // 同为 TV 动画且标题一致仍正常合并，阻断不影响常规匹配
+  const tvPrimary   = buildAnime(3, '银河守护者 第二季(2017)【TV动画】from dandan', 'dandan', 'TV动画', '2017-01-01T00:00:00.000Z', 25);
+  const tvSecondary = buildAnime(4, '银河守护者 第二季(2017)【TV动画】from animeko', 'animeko', 'TV动画', '2017-01-01T00:00:00.000Z', 25);
+  assert.deepStrictEqual(
+    findSecondaryMatches(tvPrimary, [tvSecondary], new Set(), ['animeko']).map((a) => a.animeId),
+    [4],
+    'TV 动画之间不受剧场版阻断影响',
+  );
+});
+
 test('merge applyMergeLogic 集对齐不绕过年份校验', async () => {
   Globals.init({ LOG_LEVEL: 'error', MERGE_SOURCE_PAIRS: 'tencent&aiyifan' });
   const epLinks = (count, name) => Array.from({ length: count }, (_, i) => ({
