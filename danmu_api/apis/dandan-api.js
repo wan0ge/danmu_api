@@ -1013,7 +1013,7 @@ function findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, platform 
   for (const ep of platformEpisodes) {
     const extractedNumber = extractEpisodeNumberFromTitle(ep.episodeTitle);
     if (episode === targetEpisode && extractedNumber === targetEpisode) {
-      log("info", `Found episode by title number: ${ep.episodeTitle} (extracted: ${extractedNumber})`);
+      log("info", `[system] [match] Found episode by title number: ${ep.episodeTitle} (extracted: ${extractedNumber})`);
       return ep;
     }
   }
@@ -1024,7 +1024,7 @@ function findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, platform 
     // 本地上传可能只有第 5、10 集，已标明集数的资源不能按列表位置补成第 1、2 集。
     const numberedLocalEpisode = fallbackEp?.url?.startsWith('local:') && extractEpisodeNumberFromTitle(fallbackEp.episodeTitle) !== null;
     if (fallbackEp && !numberedLocalEpisode) {
-      log("info", `Using fallback array index for episode ${targetEpisode}: ${fallbackEp.episodeTitle}`);
+      log("info", `[system] [match] Using fallback array index for episode ${targetEpisode}: ${fallbackEp.episodeTitle}`);
       return fallbackEp;
     }
   }
@@ -1032,7 +1032,7 @@ function findEpisodeByNumber(filteredEpisodes, episode, targetEpisode, platform 
   // 策略3：使用episodeNumber字段匹配
   for (const ep of platformEpisodes) {
     if (ep.episodeNumber && parseInt(ep.episodeNumber, 10) === targetEpisode) {
-      log("info", `Found episode by episodeNumber: ${ep.episodeTitle} (episodeNumber: ${ep.episodeNumber})`);
+      log("info", `[system] [match] Found episode by episodeNumber: ${ep.episodeTitle} (episodeNumber: ${ep.episodeNumber})`);
       return ep;
     }
   }
@@ -1047,7 +1047,7 @@ async function matchAniAndEpByAi(season, episode, year, searchData, title, req, 
   const aiMatchPrompt = globals.aiMatchPrompt;
 
   if (!globals.aiValid || !aiMatchPrompt) {
-    log("warn", "AI configuration is incomplete, falling back to normal matching");
+    log("warn", "[system] [match] AI configuration is incomplete, falling back to normal matching");
     return { resEpisode: null, resAnime: null };
   }
 
@@ -1087,7 +1087,7 @@ async function matchAniAndEpByAi(season, episode, year, searchData, title, req, 
 
     const aiResponse = await aiClient.ask(userPrompt);
     // const aiResponse = '{ "animeIndex": 0 }';
-    log("info", `AI match response: ${aiResponse}`);
+    log("info", `[system] [match] AI match response: ${aiResponse}`);
 
     let parsedResponse;
     try {
@@ -1095,7 +1095,7 @@ async function matchAniAndEpByAi(season, episode, year, searchData, title, req, 
       const jsonString = jsonMatch ? (jsonMatch[1] || jsonMatch[2] || jsonMatch[3]) : aiResponse;
       parsedResponse = JSON.parse(jsonString.trim());
     } catch (parseError) {
-      log("error", `Failed to parse AI response: ${parseError.message}`);
+      log("error", `[system] [match] Failed to parse AI response: ${parseError.message}`);
       return { resEpisode: null, resAnime: null };
     }
 
@@ -1107,7 +1107,7 @@ async function matchAniAndEpByAi(season, episode, year, searchData, title, req, 
 
     const selectedAnime = searchData.animes[animeIndex];
     if (!selectedAnime) {
-      log("error", `AI returned invalid anime index: ${animeIndex}`);
+      log("error", `[system] [match] AI returned invalid anime index: ${animeIndex}`);
       return { resEpisode: null, resAnime: null };
     }
 
@@ -1136,7 +1136,7 @@ async function matchAniAndEpByAi(season, episode, year, searchData, title, req, 
         });
         const filteredEpisodes = filterSameEpisodeTitle(filteredTmpEpisodes);
         
-        log("info", "过滤后的集标题", filteredEpisodes.map(episode => episode.episodeTitle));
+        log("info", "[system] [match] 过滤后的集标题", filteredEpisodes.map(episode => episode.episodeTitle));
 
         // 匹配集数 (注意：findEpisodeByNumber 已增强支持模糊平台匹配)
         filteredEpisode = findEpisodeByNumber(filteredEpisodes, episode, episode);
@@ -1149,7 +1149,7 @@ async function matchAniAndEpByAi(season, episode, year, searchData, title, req, 
 
     return { resEpisode: filteredEpisode, resAnime: selectedAnime };
   } catch (error) {
-    log("error", `AI matching failed: ${error.message}`);
+    log("error", `[system] [match] AI matching failed: ${error.message}`);
     return { resEpisode: null, resAnime: null };
   }
 }
@@ -1160,7 +1160,7 @@ export function getBangumiDataForMatch(anime, detailStore = null) {
     resolveAnimeByIdFromDetailStore(anime?.animeId, detailStore, anime?.source);
 
   if (!detailAnime) {
-    log("warn", `[system] [matchAnime] Missing request detail snapshot for anime ${anime?.animeId ?? anime?.bangumiId}`);
+    log("warn", `[system] [match] Missing request detail snapshot for anime ${anime?.animeId ?? anime?.bangumiId}`);
     return null;
   }
 
@@ -1179,7 +1179,7 @@ function computeTargetEpisode(offsets, season, episode, filteredEpisodes, target
   if (offsetIndex !== -1) {
     // 计算本次获取的目标index
     targetEpisode = offsetIndex + offset + 1;
-    log("info", `Applying offset "${offsets[seasonKey]}" for S${season}E${episode} -> ${targetEpisode}`);
+    log("info", `[system] [match] Applying offset "${offsets[seasonKey]}" for S${season}E${episode} -> ${targetEpisode}`);
   }
   return targetEpisode;
 }
@@ -1390,7 +1390,7 @@ export async function matchAniAndEp(season, episode, year, searchData, title, re
             if (normalizeTitleForMatch(candTitle).includes(candidateQueryTitle)) {
                 // 年份匹配依然以原始 anime 为准，且年份匹配优先于季匹配
                 if (!matchYear(anime, year)) {
-                    log("info", `Year mismatch: anime year ${extractYear(anime.animeTitle)} vs query year ${year}`);
+                    log("info", `[system] [match] Year mismatch: anime year ${extractYear(anime.animeTitle)} vs query year ${year}`);
                     continue;
                 }
 
@@ -1416,7 +1416,7 @@ export async function matchAniAndEp(season, episode, year, searchData, title, re
             if (normalizeTitleForMatch(cleanTitle) === candidateQueryTitle) {
                 // 年份匹配检查
                 if (!matchYear(anime, year)) {
-                    log("info", `Year mismatch: anime year ${extractYear(anime.animeTitle)} vs query year ${year}`);
+                    log("info", `[system] [match] Year mismatch: anime year ${extractYear(anime.animeTitle)} vs query year ${year}`);
                     continue;
                 }
                 isMatch = true;
@@ -1441,8 +1441,8 @@ export async function matchAniAndEp(season, episode, year, searchData, title, re
     }
     
     // 输出匹配分数及原始数据日志
-    log("info", "判断剧集", `Anime: ${anime.animeTitle}`);
-    log("info", bangumiData);
+    log("info", "[system] [match] 判断剧集", `Anime: ${anime.animeTitle}`);
+    log("info", "[system] [match]", bangumiData);
 
     let matchedEpisode = null;
 
@@ -1457,7 +1457,7 @@ export async function matchAniAndEp(season, episode, year, searchData, title, re
         });
         const filteredEpisodes = filterSameEpisodeTitle(filteredTmpEpisodes);
         
-        log("info", "过滤后的集标题", filteredEpisodes.map(episode => episode.episodeTitle));
+        log("info", "[system] [match] 过滤后的集标题", filteredEpisodes.map(episode => episode.episodeTitle));
 
         let targetEpisode = episode;
         if (offsets && offsets[String(season)] !== undefined) {
@@ -1590,7 +1590,7 @@ export async function fallbackMatchAniAndEp(searchData, req, season, episode, ye
   for (const anime of [...sameSeasonAnimes, ...restAnimes]) {
     // 年份匹配优先（如果提供了年份）
     if (year && !matchYear(anime, year)) {
-      log("info", `Fallback: Year mismatch: anime year ${extractYear(anime.animeTitle)} vs query year ${year}`);
+      log("info", `[system] [match] Fallback: Year mismatch: anime year ${extractYear(anime.animeTitle)} vs query year ${year}`);
       continue;
     }
     
@@ -1598,7 +1598,7 @@ export async function fallbackMatchAniAndEp(searchData, req, season, episode, ye
     if (!bangumiData?.success || !bangumiData?.bangumi?.episodes) {
       continue;
     }
-    log("info", bangumiData);
+    log("info", "[system] [match]", bangumiData);
     if (season && episode) {
       // 过滤集标题正则条件的 episode
       const filteredTmpEpisodes = bangumiData.bangumi.episodes.filter(episode => {
