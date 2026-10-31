@@ -239,6 +239,24 @@ test('log 标签：生产日志首标签均落在 logview 归属分类内', () =
     assert.deepEqual(aliens, [], `存在未归属的日志首标签：${aliens.join(', ')}`);
 });
 
+test('log 标签：源与接口层的 error/warn 日志均带首标签', () => {
+    const pkgRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const missing = [];
+    for (const layer of ['sources', 'apis']) {
+        for (const file of walkSourceFiles(path.join(pkgRoot, layer))) {
+            const source = fs.readFileSync(file, 'utf8');
+            for (const call of source.matchAll(/\blog\(\s*['"](?:error|warn)['"]\s*,\s*/g)) {
+                const rest = source.slice(call.index + call[0].length);
+                // 首参为方括号标签，或运行时拼出的标签变量，均视为带标签
+                if (/^[`'"]\s*\[/.test(rest) || /^[`'"]\s*\$\{/.test(rest) || /^['"]\s*\+/.test(rest)) continue;
+                const line = source.slice(0, call.index).split('\n').length;
+                missing.push(`${layer}/${path.basename(file)}:${line}`);
+            }
+        }
+    }
+    assert.deepEqual(missing, [], `源与接口层的 error/warn 日志缺少首标签：${missing.join(', ')}`);
+});
+
 test('log 标签：源的日志规范名映射均落在 logview 归属分类内', () => {
     // 注册表与 http-util 各自维护调度键到日志名的映射，两处结果都要落在分类集内
     const names = getAllSourceMetas().flatMap(meta => [meta.logName, toLogSourceName(meta.key)]);
