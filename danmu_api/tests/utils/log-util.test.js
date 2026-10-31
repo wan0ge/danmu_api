@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { log, formatLogMessage } from '../../utils/log-util.js';
 import { globals } from '../../configs/globals.js';
 import { logviewJsContent } from '../../ui/js/logview.js';
+import { getAllSourceMetas } from '../../sources/registry.js';
+import { toLogSourceName } from '../../utils/http-util.js';
 
 // 临时接管 console 以收集真实输出，结束后恢复，避免污染测试输出
 function captureConsole(levels, fn) {
@@ -236,4 +238,11 @@ test('log 标签：生产日志首标签均落在 logview 归属分类内', () =
         }
     }
     assert.deepEqual(aliens, [], `存在未归属的日志首标签：${aliens.join(', ')}`);
+});
+
+test('log 标签：源的日志规范名映射均落在 logview 归属分类内', () => {
+    // 注册表与 http-util 各自维护调度键到日志名的映射，两处结果都要落在分类集内
+    const names = getAllSourceMetas().flatMap(meta => [meta.logName, toLogSourceName(meta.key)]);
+    const aliens = names.filter(name => !LOG_CATEGORIES.has(getLogCategory(`[${name}]`)));
+    assert.deepEqual(aliens, [], `存在未归属的源日志规范名：${aliens.join(', ')}`);
 });
