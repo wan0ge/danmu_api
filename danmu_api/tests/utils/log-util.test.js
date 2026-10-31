@@ -239,22 +239,23 @@ test('log 标签：生产日志首标签均落在 logview 归属分类内', () =
     assert.deepEqual(aliens, [], `存在未归属的日志首标签：${aliens.join(', ')}`);
 });
 
-test('log 标签：源与接口层的 error/warn 日志均带首标签', () => {
+test('log 标签：源、接口、配置与 worker 的日志均带首标签', () => {
     const pkgRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const files = ['sources', 'apis', 'configs']
+        .flatMap(layer => walkSourceFiles(path.join(pkgRoot, layer)))
+        .concat(path.join(pkgRoot, 'worker.js'));
     const missing = [];
-    for (const layer of ['sources', 'apis']) {
-        for (const file of walkSourceFiles(path.join(pkgRoot, layer))) {
-            const source = fs.readFileSync(file, 'utf8');
-            for (const call of source.matchAll(/\blog\(\s*['"](?:error|warn)['"]\s*,\s*/g)) {
-                const rest = source.slice(call.index + call[0].length);
-                // 首参为方括号标签，或运行时拼出的标签变量，均视为带标签
-                if (/^[`'"]\s*\[/.test(rest) || /^[`'"]\s*\$\{/.test(rest) || /^['"]\s*\+/.test(rest)) continue;
-                const line = source.slice(0, call.index).split('\n').length;
-                missing.push(`${layer}/${path.basename(file)}:${line}`);
-            }
+    for (const file of files) {
+        const source = fs.readFileSync(file, 'utf8');
+        for (const call of source.matchAll(/\blog\(\s*['"](?:info|warn|error|debug|success)['"]\s*,\s*/g)) {
+            const rest = source.slice(call.index + call[0].length);
+            // 首参为方括号标签，或运行时拼出的标签变量，均视为带标签
+            if (/^[`'"]\s*\[/.test(rest) || /^[`'"]\s*\$\{/.test(rest) || /^['"]\s*\+/.test(rest)) continue;
+            const line = source.slice(0, call.index).split('\n').length;
+            missing.push(`${path.relative(pkgRoot, file)}:${line}`);
         }
     }
-    assert.deepEqual(missing, [], `源与接口层的 error/warn 日志缺少首标签：${missing.join(', ')}`);
+    assert.deepEqual(missing, [], `缺少首标签的日志：${missing.join(', ')}`);
 });
 
 test('log 标签：源的日志规范名映射均落在 logview 归属分类内', () => {
@@ -287,4 +288,31 @@ test('log 标签：前端通知归入 system，带标签的通知按标签归类
     context.addLog('日志已清空');
     context.addLog('[tencent] 手动标记');
     assert.deepEqual(vm.runInContext('logs', context).map(entry => entry._category), ['system', 'tencent']);
+});
+
+test('log 标签：渲染时续行与记录同组，筛选按钮按分类顺序生成', () => {
+    const container = { innerHTML: '', scrollTop: 0, scrollHeight: 0 };
+    // 供 applyLogFilter 遍历：按已生成的 HTML 还原出带 data-category 的行对象
+    Object.defineProperty(container, 'children', {
+        get() {
+            return [...this.innerHTML.matchAll(/data-category="([^"]+)"/g)].map(m => ({
+                dataset: { category: m[1] },
+                classList: { toggle() {} }
+            }));
+        }
+    });
+    const filters = { innerHTML: '' };
+    const elements = { 'log-container': container, 'log-filters': filters, 'log-logs': { style: { display: 'block' } } };
+    const context = vm.createContext({ window: {}, document: { getElementById: id => elements[id] || null } });
+    vm.runInContext('var logs = [];', context);
+    vm.runInContext(logviewJsContent, context);
+    context.rows = context.parseLogLines([
+        '[2026-10-31T08:00:00.000+08:00] info: [merge][Phase 2: Standard] [tencent] 映射详情:',
+        '   [已路由映射] 第1集 <-> 第1集',
+        '[2026-10-31T08:00:01.000+08:00] info: [system] [redis] 连接就绪',
+    ].join('\n'));
+    vm.runInContext('logs = rows', context);
+    context.renderLogs();
+    assert.deepEqual([...container.innerHTML.matchAll(/data-category="([^"]+)"/g)].map(m => m[1]), ['merge', 'merge', 'system']);
+    assert.deepEqual([...filters.innerHTML.matchAll(/setLogFilter\('([^']+)'\)/g)].map(m => m[1]), ['ALL', 'system', 'merge']);
 });
