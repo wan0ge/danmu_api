@@ -279,3 +279,12 @@ test('log 标签：多行日志的续行沿用所属记录的分类', () => {
         ['warn', 'system'],
     ]);
 });
+
+test('log 标签：前端通知归入 system，带标签的通知按标签归类', () => {
+    const context = vm.createContext({ window: {}, document: { getElementById: () => null } });
+    vm.runInContext('var logs = [];', context);
+    vm.runInContext(logviewJsContent, context);
+    context.addLog('日志已清空');
+    context.addLog('[tencent] 手动标记');
+    assert.deepEqual(vm.runInContext('logs', context).map(entry => entry._category), ['system', 'tencent']);
+});

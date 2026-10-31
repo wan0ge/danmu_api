@@ -64,7 +64,9 @@ function isLogViewVisible() {
 
 function addLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
-    logs.push({ timestamp, message, type, _category: getLogCategory(message) });
+    // 前端通知是独立记录，没有首标签时归入 system，不跟随上一条服务端日志的分类
+    const category = getLogCategory(message);
+    logs.push({ timestamp, message, type, _category: category === '_inherit_' ? 'system' : category });
     if (logs.length > 100) logs.shift();
     // 仅当日志视图可见时才重建 DOM；切到其他页面期间产生的日志仅追加到数组，回到日志视图并重新渲染时再统一呈现，避免每次切换区块都全量重建
     if (isLogViewVisible()) {
