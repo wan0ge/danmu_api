@@ -169,6 +169,25 @@ window.setLogFilter = function(tag) {
     updateFilterUI();
 };
 
+// 解析 /api/logs 的行文本：每行形如 [时间戳] 级别: 消息，空行忽略；
+// 不构成记录的行是同一条记录消息的续行，分类标记为继承，渲染时沿用上一行
+function parseLogLines(logText) {
+    return logText
+        .split('\\n')
+        .filter(line => line.trim() !== '')
+        .map(line => {
+            // 解析日志行，提取时间戳、级别和消息
+            const match = line.match(/\\[([^\\]]+)\\] (\\w+): (.*)/);
+            const message = match ? match[3] : line;
+            return {
+                timestamp: match ? match[1] : new Date().toLocaleTimeString(),
+                type: match ? match[2] : 'info',
+                message: message,
+                _category: match ? getLogCategory(message) : '_inherit_'
+            };
+        });
+}
+
 // 从API获取真实日志数据
 async function fetchRealLogs() {
     try {
@@ -177,22 +196,7 @@ async function fetchRealLogs() {
         if (!response.ok) {
             throw new Error(\`HTTP error! status: \${response.status}\`);
         }
-        const logText = await response.text();
-        // 解析日志文本为数组
-        const logLines = logText.split('\\n').filter(line => line.trim() !== '');
-        // 转换为logs数组格式
-        logs = logLines.map(line => {
-            // 解析日志行，提取时间戳、级别和消息
-            const match = line.match(/\\[([^\\]]+)\\] (\\w+): (.*)/);
-            const message = match ? match[3] : line;
-            const entry = {
-                timestamp: match ? match[1] : new Date().toLocaleTimeString(),
-                type: match ? match[2] : 'info',
-                message: message
-            };
-            entry._category = getLogCategory(message);
-            return entry;
-        });
+        logs = parseLogLines(await response.text());
         renderLogs();
     } catch (error) {
         console.error('Failed to fetch logs:', error);

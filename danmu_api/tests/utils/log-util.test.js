@@ -1,10 +1,11 @@
-// 日志工具：日志级别过滤、参数拼接与脱敏、logBuffer 裁剪、上海时区时间戳、JSON 格式化、日志首标签归属分类
+// 日志工具：日志级别过滤、参数拼接与脱敏、logBuffer 裁剪、上海时区时间戳、JSON 格式化、日志首标签归属与行解析
 
 import test from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import { log, formatLogMessage } from '../../utils/log-util.js';
 import { globals } from '../../configs/globals.js';
 import { logviewJsContent } from '../../ui/js/logview.js';
@@ -198,13 +199,11 @@ test('formatLogMessage 对非 JSON 与非法/边缘入参的行为', () => {
     assert.equal(formatLogMessage(undefined), undefined);
 });
 
-// 日志标签分类测试：复用 ui/js/logview.js 的分类函数与分类表，分类增长时无需改动本测试
-const getLogCategory = new Function(
-    `${logviewJsContent.match(/function getLogCategory\(message\) \{[\s\S]*?\n\}/)[0]}\nreturn getLogCategory;`
-)();
-const LOG_CATEGORIES = new Set(
-    [...logviewJsContent.match(/const tagGroupOrder = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map(m => m[1])
-);
+// 日志标签与行解析测试：在 vm 中执行 ui/js/logview.js 片段，直接取用其分类函数、分类表与行解析
+const logviewContext = vm.createContext({ window: {} });
+vm.runInContext(logviewJsContent, logviewContext);
+const { getLogCategory, parseLogLines } = logviewContext;
+const LOG_CATEGORIES = new Set(vm.runInContext('tagGroupOrder.flat()', logviewContext));
 
 function walkSourceFiles(dir, out = []) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -245,4 +244,20 @@ test('log 标签：源的日志规范名映射均落在 logview 归属分类内'
     const names = getAllSourceMetas().flatMap(meta => [meta.logName, toLogSourceName(meta.key)]);
     const aliens = names.filter(name => !LOG_CATEGORIES.has(getLogCategory(`[${name}]`)));
     assert.deepEqual(aliens, [], `存在未归属的源日志规范名：${aliens.join(', ')}`);
+});
+
+test('log 标签：多行日志的续行沿用所属记录的分类', () => {
+    const text = [
+        '[2026-10-31T08:00:00.000+08:00] info: [merge][Phase 2: Standard] [tencent] 映射详情:',
+        '   [已路由映射] 第1集 <-> 第1集 (Rule: E1>E1)',
+        '   [路由失败] 主源找不到 E2 <-> 第3集',
+        '',
+        '[2026-10-31T08:00:01.000+08:00] warn: [system] [redis] 连接未就绪',
+    ].join('\n');
+    assert.deepEqual(parseLogLines(text).map(row => [row.type, row._category]), [
+        ['info', 'merge'],
+        ['info', '_inherit_'],
+        ['info', '_inherit_'],
+        ['warn', 'system'],
+    ]);
 });
